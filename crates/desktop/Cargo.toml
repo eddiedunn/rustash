@@ -1,0 +1,37 @@
+[package]
+name = "rustash-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Desktop GUI for Rustash snippet manager"
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "rustash-desktop"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Desktop GUI
+tauri = { workspace = true, optional = true }
+
+# Core library
+rustash-core.workspace = true
+rustash-utils.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[features]
+default = ["sqlite", "desktop"]
+sqlite = ["rustash-core/sqlite"]
+postgres = ["rustash-core/postgres"]
+desktop = ["tauri"]

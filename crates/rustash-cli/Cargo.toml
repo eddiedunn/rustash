@@ -1,0 +1,58 @@
+[package]
+name = "rustash-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface for Rustash snippet manager"
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "rustash"
+path = "src/main.rs"
+
+[dependencies]
+# Core library
+rustash-core = { workspace = true }
+
+# CLI framework
+clap = { workspace = true, features = ["derive", "env"] }
+clap_complete = { workspace = true }
+
+# User interaction
+dialoguer = { workspace = true }
+console = { workspace = true }
+indicatif = { workspace = true }
+
+# Clipboard integration
+arboard = { workspace = true }
+
+# Fuzzy finder
+skim = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Time handling
+chrono = { workspace = true, features = ["serde"] }
+
+# Terminal colors
+termcolor = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["rustash-core/sqlite"]
+postgres = ["rustash-core/postgres"]
+vector-search = ["rustash-core/vector-search"]

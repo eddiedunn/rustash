@@ -1,0 +1,166 @@
+//! Use snippet command
+
+use anyhow::Result;
+use clap::Args;
+use rustash_core::{establish_connection, expand_placeholders, get_snippet_by_id, SnippetWithTags};
+use crate::utils::copy_to_clipboard;
+use dialoguer::Input;
+use std::collections::HashMap;
+
+#[derive(Args)]
+pub struct UseCommand {
+    /// ID of the snippet to use
+    pub id: i32,
+    
+    /// Variables for placeholder expansion (key=value format)
+    #[arg(short, long, value_parser = parse_variable)]
+    pub var: Vec<(String, String)>,
+    
+    /// Copy to clipboard after expansion
+    #[arg(short, long, default_value = "true")]
+    pub copy: bool,
+    
+    /// Interactive mode: prompt for missing variables
+    #[arg(short, long)]
+    pub interactive: bool,
+    
+    /// Just print the expanded content without copying
+    #[arg(long)]
+    pub print_only: bool,
+}
+
+impl UseCommand {
+    pub fn execute(self) -> Result<()> {
+        let mut conn = establish_connection()?;
+        
+        // Get the snippet
+        let snippet = get_snippet_by_id(&mut conn, self.id)?
+            .ok_or_else(|| anyhow::anyhow!("Snippet with ID {} not found", self.id))?;
+        
+        let snippet_with_tags = SnippetWithTags::from(snippet);
+        
+        // Build variables map
+        let mut variables: HashMap<String, String> = self.var.into_iter().collect();
+        
+        // Extract placeholders from content
+        let placeholders = extract_placeholders(&snippet_with_tags.content);
+        
+        // Interactive mode: prompt for missing variables
+        if self.interactive {
+            for placeholder in &placeholders {
+                if !variables.contains_key(placeholder) {
+                    let value: String = Input::new()
+                        .with_prompt(format!("Enter value for '{}'", placeholder))
+                        .interact_text()?;
+                    variables.insert(placeholder.clone(), value);
+                }
+            }
+        }
+        
+        // Expand placeholders
+        let expanded_content = expand_placeholders(&snippet_with_tags.content, &variables);
+        
+        // Check for remaining placeholders
+        let remaining_placeholders = extract_placeholders(&expanded_content);
+        if !remaining_placeholders.is_empty() && !self.interactive {
+            eprintln!("Warning: The following placeholders were not expanded:");
+            for placeholder in remaining_placeholders {
+                eprintln!("  {{{{ {} }}}}", placeholder);
+            }
+            eprintln!("Use --interactive or provide values with --var key=value");
+        }
+        
+        // Output results
+        if self.print_only {
+            println!("{}", expanded_content);
+        } else {
+            println!("Snippet: {}", snippet_with_tags.title);
+            if !snippet_with_tags.tags.is_empty() {
+                println!("Tags: {}", snippet_with_tags.tags.join(", "));
+            }
+            println!();
+            println!("{}", expanded_content);
+            
+            if self.copy {
+                copy_to_clipboard(&expanded_content)?;
+                println!("\n✓ Copied to clipboard");
+            }
+        }
+        
+        Ok(())
+    }
+}
+
+fn parse_variable(s: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid variable format '{}'. Use key=value", s));
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+fn extract_placeholders(content: &str) -> Vec<String> {
+    let mut placeholders = Vec::new();
+    let mut chars = content.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '{' && chars.peek() == Some(&'{') {
+            chars.next(); // consume second '{'
+            
+            let mut placeholder = String::new();
+            let mut found_closing = false;
+            
+            while let Some(ch) = chars.next() {
+                if ch == '}' && chars.peek() == Some(&'}') {
+                    chars.next(); // consume second '}'
+                    found_closing = true;
+                    break;
+                }
+                placeholder.push(ch);
+            }
+            
+            if found_closing && !placeholder.trim().is_empty() {
+                let clean_placeholder = placeholder.trim().to_string();
+                if !placeholders.contains(&clean_placeholder) {
+                    placeholders.push(clean_placeholder);
+                }
+            }
+        }
+    }
+    
+    placeholders
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_extract_placeholders() {
+        let content = "Hello {{name}}, welcome to {{place}}! {{name}} is great.";
+        let placeholders = extract_placeholders(content);
+        assert_eq!(placeholders, vec!["name", "place"]);
+    }
+    
+    #[test]
+    fn test_extract_placeholders_with_spaces() {
+        let content = "{{ username }} and {{ project_name }}";
+        let placeholders = extract_placeholders(content);
+        assert_eq!(placeholders, vec!["username", "project_name"]);
+    }
+    
+    #[test]
+    fn test_parse_variable() {
+        assert_eq!(
+            parse_variable("name=Alice").unwrap(),
+            ("name".to_string(), "Alice".to_string())
+        );
+        
+        assert_eq!(
+            parse_variable("url=https://example.com").unwrap(),
+            ("url".to_string(), "https://example.com".to_string())
+        );
+        
+        assert!(parse_variable("invalid").is_err());
+    }
+}

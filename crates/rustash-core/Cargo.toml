@@ -1,0 +1,53 @@
+[package]
+name = "rustash-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core library for Rustash snippet manager"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Database
+diesel = { workspace = true, features = ["chrono", "serde_json"] }
+diesel_migrations = { workspace = true }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Time handling
+chrono = { workspace = true, features = ["serde"] }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# UUID generation
+uuid = { workspace = true, features = ["v4", "serde"] }
+
+# Database connection pooling
+r2d2 = { workspace = true }
+
+# SQLite backend (default)
+libsqlite3-sys = { workspace = true }
+
+# PostgreSQL backend (optional)
+diesel-async = { workspace = true }
+bb8 = { workspace = true }
+
+# Vector search (commented out due to build issues)
+# sqlite-vss = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["diesel/sqlite"]
+postgres = ["diesel/postgres"]
+vector-search = []
