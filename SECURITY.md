@@ -47,10 +47,10 @@ The project's main risks are in its interaction with the environment, specifical
 
 ### 5. Denial of Service (DoS)
 
-* **Finding:** The `list_snippets` function uses a `LIKE` query with leading and trailing wildcards (`%...%`).
-* **Risk:** **Low to Medium**.
-* **Assessment:** On a large database, this query cannot use standard B-tree indexes effectively and will result in a full table scan. A malicious user could add many large snippets and then craft search queries that would consume significant CPU and time, effectively making the application unresponsive. While the `up.sql` migration sets up a Full-Text Search (FTS5) table, the `list_snippets` and `search_snippets` functions in `crates/rustash-core/src/snippet.rs` explicitly fall back to using `LIKE`.
-* **Recommendation:** Modify the `search_snippets` function to correctly use the `snippets_fts` virtual table for all full-text searches. This will be significantly more performant and resistant to DoS.
+*   **Finding:** The initial implementation used SQL `LIKE` queries for filtering, which could lead to slow performance and potential DoS on very large datasets due to full table scans.
+*   **Risk:** **Mitigated**.
+*   **Assessment:** The search and filtering functionality has been refactored to exclusively use the FTS5 full-text search index for all text-based and tag-based queries. FTS5 is highly optimized for text searching and is resistant to the performance degradation seen with `LIKE` queries with leading wildcards. This change effectively mitigates the original DoS vector.
+*   **Recommendation:** No further action required. The current implementation is performant.
 
 ### 6. Insecure Dependencies (Supply Chain)
 

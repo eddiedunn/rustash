@@ -2,19 +2,19 @@
 
 use anyhow::Result;
 use arboard::Clipboard;
+use console::{Term, style};
 use rustash_core::SnippetWithTags;
-use console::{style, Term};
 use std::io::Write;
 
 /// Copy text to clipboard
 pub fn copy_to_clipboard(text: &str) -> Result<()> {
-    let mut clipboard = Clipboard::new()
-        .map_err(|e| anyhow::anyhow!("Failed to access clipboard: {}", e))?;
-    
+    let mut clipboard =
+        Clipboard::new().map_err(|e| anyhow::anyhow!("Failed to access clipboard: {}", e))?;
+
     clipboard
         .set_text(text)
         .map_err(|e| anyhow::anyhow!("Failed to copy to clipboard: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -24,7 +24,10 @@ pub fn format_snippet_list(snippets: &[SnippetWithTags], format: &str) -> Result
         "table" => format_table(snippets),
         "compact" => format_compact(snippets),
         "detailed" => format_detailed(snippets),
-        _ => anyhow::bail!("Unknown format '{}'. Use: table, compact, detailed, json, ids", format),
+        _ => anyhow::bail!(
+            "Unknown format '{}'. Use: table, compact, detailed, json, ids",
+            format
+        ),
     }
 }
 
@@ -32,9 +35,9 @@ fn format_table(snippets: &[SnippetWithTags]) -> Result<()> {
     if snippets.is_empty() {
         return Ok(());
     }
-    
+
     let mut term = Term::stdout();
-    
+
     // Header
     writeln!(
         term,
@@ -44,26 +47,29 @@ fn format_table(snippets: &[SnippetWithTags]) -> Result<()> {
         style("Tags").bold().cyan(),
         style("Updated").bold().cyan()
     )?;
-    
+
     writeln!(term, "{}", "─".repeat(80))?;
-    
+
     // Rows
     for snippet in snippets {
-        let id_str = snippet.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string());
+        let id_str = snippet
+            .id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "?".to_string());
         let tags_str = if snippet.tags.is_empty() {
             style("").dim().to_string()
         } else {
             style(snippet.tags.join(", ")).yellow().to_string()
         };
-        
+
         let title = if snippet.title.len() > 40 {
             format!("{}...", &snippet.title[..37])
         } else {
             snippet.title.clone()
         };
-        
+
         let updated = snippet.updated_at.format("%Y-%m-%d %H:%M").to_string();
-        
+
         writeln!(
             term,
             "{:<4} {:<43} {:<20} {}",
@@ -73,21 +79,24 @@ fn format_table(snippets: &[SnippetWithTags]) -> Result<()> {
             style(updated).dim()
         )?;
     }
-    
+
     Ok(())
 }
 
 fn format_compact(snippets: &[SnippetWithTags]) -> Result<()> {
     let mut term = Term::stdout();
-    
+
     for snippet in snippets {
-        let id_str = snippet.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string());
+        let id_str = snippet
+            .id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "?".to_string());
         let tags_str = if snippet.tags.is_empty() {
             String::new()
         } else {
             format!(" [{}]", snippet.tags.join(", "))
         };
-        
+
         writeln!(
             term,
             "{}: {}{}",
@@ -96,23 +105,26 @@ fn format_compact(snippets: &[SnippetWithTags]) -> Result<()> {
             style(tags_str).yellow()
         )?;
     }
-    
+
     Ok(())
 }
 
 fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
     let mut term = Term::stdout();
-    
+
     for (i, snippet) in snippets.iter().enumerate() {
         if i > 0 {
             writeln!(term, "{}", "─".repeat(80))?;
         }
-        
-        let id_str = snippet.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string());
-        
+
+        let id_str = snippet
+            .id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "?".to_string());
+
         writeln!(term, "{}: {}", style("ID").bold(), style(id_str).green())?;
         writeln!(term, "{}: {}", style("Title").bold(), snippet.title)?;
-        
+
         if !snippet.tags.is_empty() {
             writeln!(
                 term,
@@ -121,7 +133,7 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
                 style(snippet.tags.join(", ")).yellow()
             )?;
         }
-        
+
         writeln!(
             term,
             "{}: {}",
@@ -134,9 +146,9 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
             style("Updated").bold(),
             snippet.updated_at.format("%Y-%m-%d %H:%M:%S")
         )?;
-        
+
         writeln!(term, "{}:", style("Content").bold())?;
-        
+
         // Display content with proper indentation
         let content_lines: Vec<&str> = snippet.content.lines().collect();
         let preview_lines = if content_lines.len() > 10 {
@@ -144,15 +156,15 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
         } else {
             &content_lines
         };
-        
+
         for line in preview_lines {
             writeln!(term, "  {}", line)?;
         }
-        
+
         if content_lines.len() > 10 {
             writeln!(term, "  {}", style("... (truncated)").dim())?;
         }
     }
-    
+
     Ok(())
 }

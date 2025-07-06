@@ -25,26 +25,34 @@ For a complete security analysis, see [SECURITY.md](./SECURITY.md).
 
 ## 7. Improved Search and Filtering
 
-Rustash now features enhanced search capabilities powered by SQLite's FTS5 full-text search engine. This provides faster and more accurate search results compared to the previous implementation.
+Rustash now features enhanced search capabilities powered by SQLite's FTS5 full-text search engine. This provides faster and more accurate search results across snippet titles, content, and tags.
 
 ### Key Improvements
 
-- **Unified Search**: The `--search` flag has been removed. All text filtering now uses the more powerful FTS5 search.
-- **Faster Performance**: Full-text search is now significantly faster, especially for large snippet collections.
+- **Unified Search**: A single `--filter` flag is used for all text-based searching, providing a consistent and powerful experience.
+- **Faster Performance**: Full-text search is significantly faster, especially for large snippet collections.
 - **Better Relevance**: Results are ranked by relevance using the BM25 algorithm.
-- **Simplified Commands**: No need to remember multiple flags - just use `--filter` for all your search needs.
+- **Powerful Syntax**: The search supports advanced operators for more precise queries.
 
 ### Examples
 
 ```bash
-# Search for snippets (powerful FTS5 search with relevance ranking)
-rustash list --filter "database OR postgres"
+# General search for "database" in title or content
+rustash list --filter "database"
 
-# Search with a tag filter
-rustash list --filter "database" --tag "sql"
+# Search for snippets tagged "sql"
+# This is now as fast as a text search!
+rustash list --tag "sql"
 
-# Search for exact phrases by using quotes
-rustash list --filter '"database migration"'
+# Combined search: find snippets with "postgres" in the text AND tagged "backup"
+rustash list --filter "postgres" --tag "backup"
+
+# Search for an exact phrase using quotes
+rustash list --filter '\"database migration\"'
+
+# Use boolean operators (NOTE: must be uppercase)
+rustash list --filter "postgres OR mysql"
+rustash list --filter "backup AND NOT nightly"
 ```
 
 ### Search Syntax

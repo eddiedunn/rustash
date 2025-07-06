@@ -8,14 +8,14 @@ use rustash_core::{add_snippet, establish_connection, models::NewSnippet};
 pub struct AddCommand {
     /// Title of the snippet
     pub title: String,
-    
+
     /// Content of the snippet
     pub content: String,
-    
+
     /// Tags for the snippet
     #[arg(short, long, value_delimiter = ',')]
     pub tags: Vec<String>,
-    
+
     /// Read content from stdin instead of command line
     #[arg(long)]
     pub stdin: bool,
@@ -32,36 +32,36 @@ impl AddCommand {
         } else {
             self.content
         };
-        
+
         // Validate input
         if self.title.trim().is_empty() {
             anyhow::bail!("Title cannot be empty");
         }
-        
+
         if content.trim().is_empty() {
             anyhow::bail!("Content cannot be empty");
         }
-        
+
         // Create connection
         let mut conn = establish_connection()?;
-        
+
         // Create new snippet
         let new_snippet = NewSnippet::new(self.title.clone(), content, self.tags.clone());
-        
+
         // Add to database
         let snippet = add_snippet(&mut conn, new_snippet)?;
-        
+
         // Print success message
         if let Some(id) = snippet.id {
             println!("✓ Added snippet '{}' with ID: {}", self.title, id);
-            
+
             if !self.tags.is_empty() {
                 println!("  Tags: {}", self.tags.join(", "));
             }
         } else {
             println!("✓ Added snippet '{}'", self.title);
         }
-        
+
         Ok(())
     }
 }

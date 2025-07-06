@@ -29,7 +29,7 @@ pub enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Add(cmd) => cmd.execute(),
         Commands::List(cmd) => cmd.execute(),

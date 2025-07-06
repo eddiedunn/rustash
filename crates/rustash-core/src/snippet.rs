@@ -40,58 +40,59 @@ pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_id: i32) -> Result<Opt
     Ok(result)
 }
 
-/// List all snippets with optional filtering using FTS5 for text search
-/// 
-/// This function uses SQLite's FTS5 virtual table for efficient full-text search
-/// when a filter_text is provided. For tag filtering, it still uses LIKE as a fallback
-/// since tag filtering would benefit from a normalized schema in the future.
-/// 
+/// List all snippets with optional filtering using FTS5 for text and tag search.
+///
+/// This function leverages SQLite's FTS5 virtual table for efficient full-text search.
+/// When filters are provided, it constructs an FTS5 query to search across title,
+/// content, and tags.
+///
 /// # Arguments
 /// * `conn` - Database connection
-/// * `filter_text` - Optional text to search for in title, content, or tags
-/// * `tag_filter` - Optional tag to filter by (uses LIKE matching)
-/// * `limit` - Maximum number of results to return
-/// 
+/// * `filter_text` - Optional text to search for in title or content.
+/// * `tag_filter` - Optional tag to filter by.
+/// * `limit` - Maximum number of results to return.
+///
 /// # Returns
-/// A vector of matching snippets, ordered by relevance (if searching) or update time
+/// A vector of matching snippets, ordered by relevance (if searching) or update time.
 pub fn list_snippets(
     conn: &mut DbConnection,
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<Snippet>> {
-    // If we have filter text, use the FTS5 search
-    if let Some(query_text) = filter_text {
-        // First, get snippets matching the text search
-        let mut results = search_snippets(conn, query_text, limit)?;
-        
-        // If we also have a tag filter, apply it to the results
-        if let Some(tag) = tag_filter {
-            let tag_lower = tag.to_lowercase();
-            results.retain(|snippet| {
-                // Check if any tag matches (case-insensitive)
-                snippet.tags.to_lowercase().contains(&tag_lower)
-            });
+    // If there are any filters, build an FTS query.
+    if filter_text.is_some() || tag_filter.is_some() {
+        let mut query_parts = Vec::new();
+
+        if let Some(text) = filter_text.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
+            // Search text in title and content columns.
+            query_parts.push(format!("(title:{} OR content:{})", text, text));
         }
-        
-        return Ok(results);
+
+        if let Some(tag) = tag_filter.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
+            // Search for the tag specifically in the tags column.
+            // The JSON is stored as '["tag1", "tag2"]', so we search for the tag inside quotes.
+            query_parts.push(format!("tags:\"{}\"", tag));
+        }
+
+        if query_parts.is_empty() {
+            // Both filters were present but empty strings.
+            // Fall through to the no-filter case.
+        } else {
+            // Join query parts with AND for combined filtering.
+            let fts_query = query_parts.join(" AND ");
+            return search_snippets(conn, &fts_query, limit);
+        }
     }
-    
-    // No text filter, use regular query with optional tag filter
+
+    // No filters provided, return all snippets ordered by last updated.
     use crate::schema::snippets::dsl::*;
-    
-    let mut query = snippets.into_boxed();
-    
-    // Apply tag filter if provided
-    if let Some(tag) = tag_filter {
-        let tag_pattern = format!("%\"{tag}%");
-        query = query.filter(tags.like(tag_pattern));
-    }
-    
-    // Apply limit if provided
+    let mut query = snippets.into_boxed().order(updated_at.desc());
+
     if let Some(limit_val) = limit {
         query = query.limit(limit_val);
     }
+
     
     // Order by most recently updated
     query = query.order(updated_at.desc());
@@ -302,32 +303,56 @@ mod tests {
         
         // Add test snippets
         let snippet1 = NewSnippet::new(
-            "Rust Code".to_string(),
+            "Rust Code Snippet".to_string(),
             "fn main() {}".to_string(),
             vec!["rust".to_string(), "code".to_string()],
         );
         let snippet2 = NewSnippet::new(
-            "Python Code".to_string(),
+            "Python Code Example".to_string(),
             "print('hello')".to_string(),
             vec!["python".to_string(), "code".to_string()],
+        );
+        let snippet3 = NewSnippet::new(
+            "Another Rust Item".to_string(),
+            "struct a;".to_string(),
+            vec!["rust".to_string(), "structs".to_string()],
         );
         
         add_snippet(&mut conn, snippet1)?;
         add_snippet(&mut conn, snippet2)?;
-        
-        // List all snippets
+        add_snippet(&mut conn, snippet3)?;
+
+        // List all snippets (should be 3)
         let all_snippets = list_snippets(&mut conn, None, None, None)?;
-        assert_eq!(all_snippets.len(), 2);
+        assert_eq!(all_snippets.len(), 3);
         
-        // Filter by title
-        let rust_snippets = list_snippets(&mut conn, Some("Rust"), None, None)?;
+        // Filter by title text (FTS)
+        let rust_snippets = list_snippets(&mut conn, Some("Snippet"), None, None)?;
         assert_eq!(rust_snippets.len(), 1);
-        assert_eq!(rust_snippets[0].title, "Rust Code");
+        assert_eq!(rust_snippets[0].title, "Rust Code Snippet");
         
-        // Filter by tag
+        // Filter by tag (FTS)
         let python_snippets = list_snippets(&mut conn, None, Some("python"), None)?;
         assert_eq!(python_snippets.len(), 1);
-        assert_eq!(python_snippets[0].title, "Python Code");
+        assert_eq!(python_snippets[0].title, "Python Code Example");
+        
+        // Filter by a different tag (FTS)
+        let struct_snippets = list_snippets(&mut conn, None, Some("structs"), None)?;
+        assert_eq!(struct_snippets.len(), 1);
+        assert_eq!(struct_snippets[0].title, "Another Rust Item");
+
+        // Combined filter: text AND tag (FTS)
+        let combined_snippets = list_snippets(&mut conn, Some("Rust"), Some("code"), None)?;
+        assert_eq!(combined_snippets.len(), 1);
+        assert_eq!(combined_snippets[0].title, "Rust Code Snippet");
+
+        // Combined filter with no results
+        let no_results = list_snippets(&mut conn, Some("Python"), Some("rust"), None)?;
+        assert_eq!(no_results.len(), 0);
+
+        // Test with limit
+        let limited = list_snippets(&mut conn, None, None, Some(1))?;
+        assert_eq!(limited.len(), 1);
         
         Ok(())
     }
