@@ -67,6 +67,9 @@ tempfile = "3.12"
 rustash-core = { path = "crates/rustash-core" }
 rustash-cli = { path = "crates/rustash-cli" }
 
+# Lazy initialization
+lazy_static = "1.4"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 unused = "deny"

@@ -47,6 +47,9 @@ chrono = { workspace = true, features = ["serde"] }
 # Terminal colors
 termcolor = { workspace = true }
 
+# Lazy initialization
+lazy_static = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }

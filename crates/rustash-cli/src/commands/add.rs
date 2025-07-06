@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use clap::Args;
-use rustash_core::{add_snippet, establish_connection, models::NewSnippet};
+use rustash_cli::db;
+use rustash_core::{add_snippet, models::NewSnippet};
 
 #[derive(Args)]
 pub struct AddCommand {
@@ -42,17 +43,17 @@ impl AddCommand {
             anyhow::bail!("Content cannot be empty");
         }
 
-        // Create connection
-        let mut conn = establish_connection()?;
+        // Create connection from pool
+        let mut conn = db::get_connection()?;
 
         // Create new snippet
         let new_snippet = NewSnippet::new(self.title.clone(), content, self.tags.clone());
 
         // Add to database
-        let snippet = add_snippet(&mut conn, new_snippet)?;
+        add_snippet(&mut *conn, new_snippet)?;
 
         // Print success message
-        if let Some(id) = snippet.id {
+        if let Some(id) = new_snippet.id {
             println!("✓ Added snippet '{}' with ID: {}", self.title, id);
 
             if !self.tags.is_empty() {

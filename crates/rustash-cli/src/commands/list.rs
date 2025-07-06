@@ -4,7 +4,8 @@ use crate::fuzzy::fuzzy_select_snippet;
 use crate::utils::format_snippet_list;
 use anyhow::Result;
 use clap::Args;
-use rustash_core::{establish_connection, list_snippets_with_tags};
+use rustash_cli::db;
+use rustash_core::list_snippets_with_tags;
 
 #[derive(Args)]
 pub struct ListCommand {
@@ -31,11 +32,11 @@ pub struct ListCommand {
 
 impl ListCommand {
     pub fn execute(self) -> Result<()> {
-        let mut conn = establish_connection()?;
+        let mut conn = db::get_connection()?;
 
         // Get snippets with filtering and searching
         let snippets = list_snippets_with_tags(
-            &mut conn,
+            &mut *conn,
             self.filter.as_deref(),
             self.tag.as_deref(),
             Some(self.limit),

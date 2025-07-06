@@ -2,10 +2,13 @@
 
 use crate::error::{Error, Result};
 use diesel::prelude::*;
+use diesel::r2d2::{self, ConnectionManager, Pool, PooledConnection};
 use std::path::{Path, PathBuf};
 use std::env;
 use std::ffi::OsStr;
 use home::home_dir;
+use std::sync::Arc;
+use std::ops::{Deref, DerefMut};
 
 #[cfg(feature = "sqlite")]
 use diesel::sqlite::SqliteConnection;
@@ -19,6 +22,83 @@ pub type DbConnection = SqliteConnection;
 
 #[cfg(feature = "postgres")]
 pub type DbConnection = PgConnection;
+
+/// Type alias for the connection manager
+#[cfg(feature = "sqlite")]
+type ConnectionManagerType = ConnectionManager<SqliteConnection>;
+
+#[cfg(feature = "postgres")]
+type ConnectionManagerType = ConnectionManager<PgConnection>;
+
+/// Type alias for the connection pool
+type ConnectionPool = Pool<ConnectionManagerType>;
+
+/// Type alias for a pooled connection
+type PooledConn = PooledConnection<ConnectionManagerType>;
+
+/// A wrapper around the connection pool that can be cloned and shared between threads
+#[derive(Clone)]
+pub struct DbPool(Arc<ConnectionPool>);
+
+impl DbPool {
+    /// Create a new connection pool
+    pub fn new(database_url: &str) -> Result<Self> {
+        let manager = ConnectionManagerType::new(database_url);
+        let pool = r2d2::Pool::builder()
+            .max_size(10) // Adjust based on your needs
+            .build(manager)
+            .map_err(|e| Error::other(format!("Failed to create connection pool: {}", e)))?;
+            
+        Ok(DbPool(Arc::new(pool)))
+    }
+    
+    /// Get a connection from the pool
+    pub fn get(&self) -> Result<PooledConnection<ConnectionManagerType>> {
+        self.0.get().map_err(|e| Error::other(format!("Failed to get connection from pool: {}", e)))
+    }
+}
+
+/// A wrapper around a pooled connection that implements `Deref` to the inner connection
+pub struct DbConnectionGuard {
+    conn: Option<PooledConn>,
+    pool: Arc<ConnectionPool>,
+}
+
+impl Drop for DbConnectionGuard {
+    fn drop(&mut self) {
+        // The connection will be returned to the pool when dropped
+    }
+}
+
+impl Deref for DbConnectionGuard {
+    type Target = DbConnection;
+    
+    fn deref(&self) -> &Self::Target {
+        self.conn.as_ref().expect("Connection already taken")
+    }
+}
+
+impl DerefMut for DbConnectionGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn.as_mut().expect("Connection already taken")
+    }
+}
+
+impl DbConnectionGuard {
+    /// Create a new connection guard
+    pub fn new(pool: &DbPool) -> Result<Self> {
+        let conn = pool.get()?;
+        Ok(Self {
+            conn: Some(conn),
+            pool: Arc::clone(&pool.0),
+        })
+    }
+    
+    /// Explicitly get the inner connection
+    pub fn into_inner(mut self) -> PooledConn {
+        self.conn.take().expect("Connection already taken")
+    }
+}
 
 /// Default database filename
 const DEFAULT_DB_FILENAME: &str = "rustash.db";
@@ -77,93 +157,134 @@ fn validate_db_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Establish a database connection
-pub fn establish_connection() -> Result<DbConnection> {
-    let database_url = match env::var("DATABASE_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            // Use default path if DATABASE_URL is not set
-            let default_path = default_db_path()?;
-            default_path.to_string_lossy().into_owned()
-        }
-    };
-
-    #[cfg(feature = "sqlite")]
-    {
-        // For SQLite, validate the file path
-        if let Ok(path) = std::path::Path::new(&database_url).canonicalize() {
-            validate_db_path(&path)?;
-            
-            // Ensure the parent directory exists
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        Error::other(format!("Failed to create database directory: {}", e))
-                    })?;
-                }
+/// Create a new database connection pool
+pub fn create_connection_pool() -> Result<DbPool> {
+    // Get database URL from environment or use default
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+        // If no DATABASE_URL is set, use the default path
+        default_db_path()
+            .expect("Failed to get default database path")
+            .to_str()
+            .expect("Database path is not valid UTF-8")
+            .to_string()
+    });
+    
+    // For SQLite, ensure the path is absolute and the parent directory exists
+    if database_url.starts_with("file:") || !database_url.contains(":") {
+        let path = Path::new(&database_url);
+        validate_db_path(path)?;
+        
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    Error::other(format!(
+                        "Failed to create database directory {}: {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
             }
         }
-        
-        let mut conn = SqliteConnection::establish(&database_url).map_err(|e| {
-            Error::other(format!("Failed to connect to database at '{}': {}", database_url, e))
-        })?;
-        
-        // Enable foreign key support for SQLite
-        diesel::sql_query("PRAGMA foreign_keys = ON")
-            .execute(&mut conn)
-            .map_err(|e| Error::other(format!("Failed to enable foreign keys: {}", e)))?;
-            
-        Ok(conn)
-    }
-
-    #[cfg(feature = "postgres")]
-    {
-        // For PostgreSQL, validate the connection string format
-        if !database_url.starts_with("postgres://") && !database_url.starts_with("postgresql://") {
-            return Err(Error::other("PostgreSQL connection string must start with 'postgres://' or 'postgresql://'"));
-        }
-        
-        let conn = PgConnection::establish(&database_url).map_err(|e| {
-            Error::other(format!("Failed to connect to PostgreSQL database: {}", e))
-        })?;
-        
-        Ok(conn)
-    }
-}
-
-/// Establish a test database connection (in-memory SQLite)
-#[cfg(test)]
-pub fn establish_test_connection() -> Result<DbConnection> {
-    #[cfg(feature = "sqlite")]
-    {
-        // Enable FTS5 extension for SQLite
-        let mut conn = SqliteConnection::establish(":memory:")?;
-        
-        // Enable FTS5 extension
-        diesel::sql_query("PRAGMA journal_mode = WAL;").execute(&mut conn)?;
-        diesel::sql_query("PRAGMA synchronous = NORMAL;").execute(&mut conn)?;
-        diesel::sql_query("PRAGMA foreign_keys = ON;").execute(&mut conn)?;
-        
-        // Enable FTS5 extension
-        diesel::sql_query("PRAGMA compile_options;").execute(&mut conn)?;
-        
-        // Run migrations for test database
-        use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-        const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
-        
-        // Run migrations
-        conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| crate::error::Error::other(format!("Migration error: {}", e)))?;
-        
-        Ok(conn)
     }
     
-    #[cfg(feature = "postgres")]
+    // Create the connection pool
+    let pool = DbPool::new(&database_url)?;
+    
+    // Test the connection and enable foreign keys for SQLite
     {
-        // For PostgreSQL tests, use a test database
-        let database_url = env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://localhost/rustash_test".to_string());
-        let conn = PgConnection::establish(&database_url)?;
-        Ok(conn)
+        let mut conn = pool.get()?;
+        
+        // Enable foreign key support for SQLite
+        #[cfg(feature = "sqlite")]
+        diesel::sql_query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .map_err(|e| Error::other(format!("Failed to enable foreign keys: {}", e)))?;
+    }
+    
+    Ok(pool)
+}
+
+/// Establish a single database connection (for backward compatibility)
+pub fn establish_connection() -> Result<DbConnection> {
+    let pool = create_connection_pool()?;
+    let conn = pool.get()?;
+    Ok(conn.into_inner())
+}
+
+/// Create a test database connection pool (in-memory SQLite)
+pub fn create_test_pool() -> Result<DbPool> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    
+    // Use a unique database name for each test
+    static TEST_DB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let test_db_number = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let database_url = format!("file:test_db_{}?mode=memory&cache=shared", test_db_number);
+    
+    // Create the connection pool
+    let pool = DbPool::new(&database_url)?;
+    
+    // Test the connection and set up the database
+    {
+        let mut conn = pool.get()?;
+        
+        // Enable foreign keys and WAL mode for better performance
+        diesel::sql_query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .map_err(|e| Error::other(format!("Failed to enable foreign keys: {}", e)))?;
+            
+        diesel::sql_query("PRAGMA journal_mode = WAL")
+            .execute(&mut *conn)
+            .map_err(|e| Error::other(format!("Failed to enable WAL mode: {}", e)))?;
+        
+        // Run migrations
+        #[cfg(feature = "sqlite")]
+        crate::migrations::run_migrations(&mut *conn).map_err(|e| {
+            Error::other(format!("Failed to run migrations on test database: {}", e))
+        })?;
+    }
+    
+    Ok(pool)
+}
+
+/// Establish a test database connection (for backward compatibility)
+pub fn establish_test_connection() -> Result<DbConnection> {
+    let pool = create_test_pool()?;
+    let conn = pool.get()?;
+    Ok(conn.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_connection_pool() -> Result<()> {
+        let pool = create_test_pool()?;
+        
+        // Test getting a connection from the pool
+        let conn = pool.get()?;
+        assert!(conn.test_connection().is_ok());
+        
+        // Test multiple connections
+        let conn2 = pool.get()?;
+        assert!(conn2.test_connection().is_ok());
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_connection_guard() -> Result<()> {
+        let pool = create_test_pool()?;
+        let mut guard = DbConnectionGuard::new(&pool)?;
+        
+        // Test deref and deref_mut
+        assert!(guard.test_connection().is_ok());
+        
+        // Test into_inner
+        let conn = guard.into_inner();
+        assert!(conn.test_connection().is_ok());
+        
+        Ok(())
     }
 }

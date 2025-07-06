@@ -2,7 +2,7 @@
 
 use crate::database::DbConnection;
 use crate::error::{Error, Result};
-use crate::models::{NewSnippet, Snippet, SnippetWithTags, UpdateSnippet};
+use crate::models::{NewSnippet, Snippet, SnippetListItem, SnippetWithTags, UpdateSnippet};
 use diesel::prelude::*;
 use std::collections::HashMap;
 
@@ -59,15 +59,21 @@ pub fn list_snippets(
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
-) -> Result<Vec<Snippet>> {
+) -> Result<Vec<SnippetListItem>> {
     // If there are any filters, build and execute an FTS query.
     if filter_text.is_some() || tag_filter.is_some() {
         let mut query_parts = Vec::new();
 
         if let Some(text) = filter_text.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
-            // FTS5 syntax requires escaping double quotes.
-            let escaped_text = text.replace('"', "\"\"");
-            query_parts.push(format!("(title:\"{}\" OR content:\"{}\")", escaped_text, escaped_text));
+            // Tokenize the search text and join with AND for more intuitive search
+            let fts_terms = text.split_whitespace()
+                .map(|term| term.replace('"', "\"\""))
+                .collect::<Vec<_>>()
+                .join(" AND ");
+            
+            if !fts_terms.is_empty() {
+                query_parts.push(format!("snippets_fts = '{}'", fts_terms));
+            }
         }
 
         if let Some(tag) = tag_filter.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
@@ -78,16 +84,16 @@ pub fn list_snippets(
         if !query_parts.is_empty() {
             let fts_query = query_parts.join(" AND ");
             
-            // Build and execute the FTS query directly
+            // Build and execute the FTS query directly, selecting only the fields we need
             let query = format!(
-                "SELECT s.* FROM snippets s 
+                "SELECT s.id, s.title, s.tags, s.updated_at FROM snippets s 
                  JOIN snippets_fts ON s.id = snippets_fts.rowid 
                  WHERE snippets_fts MATCH ? 
                  ORDER BY bm25(snippets_fts, 2.0, 1.0, 0.5), s.updated_at DESC {}",
                 limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default()
             );
             
-            let results: Vec<Snippet> = diesel::sql_query(query)
+            let results: Vec<SnippetListItem> = diesel::sql_query(query)
                 .bind::<diesel::sql_types::Text, _>(&fts_query)
                 .load(conn)
                 .map_err(|e| Error::other(format!("Failed to execute FTS query: {}", e)))?;
@@ -187,9 +193,32 @@ pub fn list_snippets_with_tags(
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<SnippetWithTags>> {
+    // First get the lightweight snippet list
     let snippets = list_snippets(conn, filter_text, tag_filter, limit)?;
-    let with_tags = snippets.into_iter().map(SnippetWithTags::from).collect();
-    Ok(with_tags)
+    
+    // Only fetch full content for snippets that need it
+    let snippets_with_tags: Result<Vec<SnippetWithTags>> = if snippets.is_empty() {
+        Ok(Vec::new())
+    } else {
+        use crate::schema::snippets::dsl::*;
+        
+        // Get the IDs of the snippets we need to fetch
+        let snippet_ids: Vec<i32> = snippets
+            .iter()
+            .filter_map(|s| s.id)
+            .collect();
+        
+        // Fetch only the full snippets we need in a single query
+        let full_snippets = snippets
+            .filter(id.eq_any(snippet_ids))
+            .select(Snippet::as_select())
+            .load::<Snippet>(conn)?;
+        
+        // Convert to SnippetWithTags
+        Ok(full_snippets.into_iter().map(Into::into).collect())
+    };
+    
+    snippets_with_tags
 }
 
 /// Validate snippet content

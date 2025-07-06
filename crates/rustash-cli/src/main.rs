@@ -1,12 +1,19 @@
 //! Rustash CLI Application
 
 mod commands;
+mod db;
 mod fuzzy;
 mod utils;
 
 use anyhow::Result;
+
 use clap::{Parser, Subcommand};
 use commands::{add::AddCommand, list::ListCommand, use_snippet::UseCommand};
+
+// Initialize the database connection pool
+fn init_db() -> Result<()> {
+    db::init()
+}
 
 #[derive(Parser)]
 #[command(name = "rustash")]
@@ -28,6 +35,9 @@ pub enum Commands {
 }
 
 fn main() -> Result<()> {
+    // Initialize the database connection pool
+    init_db()?;
+    
     let cli = Cli::parse();
 
     match cli.command {

@@ -4,6 +4,7 @@ use crate::schema::snippets;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
+use diesel::sql_types::Text;
 
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
@@ -39,6 +40,28 @@ pub struct SnippetWithTags {
     pub embedding: Option<Vec<u8>>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+/// A lightweight representation of a snippet for list views
+#[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
+#[diesel(table_name = snippets)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct SnippetListItem {
+    pub id: Option<i32>,
+    pub title: String,
+    pub tags: String, // JSON array stored as string
+    pub updated_at: NaiveDateTime,
+}
+
+impl From<Snippet> for SnippetListItem {
+    fn from(snippet: Snippet) -> Self {
+        Self {
+            id: snippet.id,
+            title: snippet.title,
+            tags: snippet.tags,
+            updated_at: snippet.updated_at,
+        }
+    }
 }
 
 impl From<Snippet> for SnippetWithTags {

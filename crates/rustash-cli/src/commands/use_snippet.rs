@@ -4,7 +4,8 @@ use crate::utils::copy_to_clipboard;
 use anyhow::Result;
 use clap::Args;
 use dialoguer::Input;
-use rustash_core::{SnippetWithTags, establish_connection, expand_placeholders, get_snippet_by_id};
+use rustash_cli::db;
+use rustash_core::{SnippetWithTags, expand_placeholders, get_snippet_by_id};
 use std::collections::HashMap;
 
 #[derive(Args)]
@@ -33,13 +34,14 @@ pub struct UseCommand {
 
 impl UseCommand {
     pub fn execute(self) -> Result<()> {
-        let mut conn = establish_connection()?;
+        let mut conn = db::get_connection()?;
 
         // Get the snippet
-        let snippet = get_snippet_by_id(&mut conn, self.id)?
+        let snippet = get_snippet_by_id(&mut *conn, self.id)?
             .ok_or_else(|| anyhow::anyhow!("Snippet with ID {} not found", self.id))?;
 
         let snippet_with_tags = SnippetWithTags::from(snippet);
+        let content = snippet_with_tags.content.clone();
 
         // Build variables map
         let mut variables: HashMap<String, String> = self.var.into_iter().collect();
