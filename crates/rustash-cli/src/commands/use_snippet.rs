@@ -21,6 +21,8 @@ pub struct UseCommand {
     pub copy: bool,
     
     /// Interactive mode: prompt for missing variables
+    /// 
+    /// Alias: --fzf (for fzf-like interactive selection)
     #[arg(short, long, alias = "fzf")]
     pub interactive: bool,
     
