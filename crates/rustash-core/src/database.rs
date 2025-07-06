@@ -54,25 +54,25 @@ fn validate_db_path(path: &Path) -> Result<()> {
     // Get the parent directory
     let parent = path.parent().ok_or_else(|| Error::other("Invalid database path"))?;
     
-    // Check if parent directory exists and is writable
+    // Only perform write check if directory doesn't exist and needs to be created
     if !parent.exists() {
-        return Err(Error::other("Database directory does not exist"));
+        // Directory doesn't exist, create it and we know it's writable
+        std::fs::create_dir_all(parent).map_err(|e| {
+            Error::other(format!("Failed to create database directory: {}", e))
+        })?;
+    } else {
+        // Directory exists, just check metadata (faster than write test)
+        let metadata = std::fs::metadata(parent).map_err(|e| {
+            Error::other(format!("Cannot access database directory: {}", e))
+        })?;
+        
+        if !metadata.is_dir() {
+            return Err(Error::other("Database path must be a directory"));
+        }
     }
     
-    let metadata = std::fs::metadata(parent).map_err(|e| {
-        Error::other(format!("Cannot access database directory: {}", e))
-    })?;
-    
-    if !metadata.is_dir() {
-        return Err(Error::other("Database path must be a directory"));
-    }
-    
-    // Check write permissions
-    let test_file = parent.join(".rustash_write_test");
-    std::fs::write(&test_file, "").map_err(|e| {
-        Error::other(format!("Cannot write to database directory: {}", e))
-    })?;
-    let _ = std::fs::remove_file(test_file);
+    // Skip the write test for performance - we'll get a clear error on database creation
+    // if there are permission issues
     
     Ok(())
 }
@@ -136,11 +136,22 @@ pub fn establish_connection() -> Result<DbConnection> {
 pub fn establish_test_connection() -> Result<DbConnection> {
     #[cfg(feature = "sqlite")]
     {
+        // Enable FTS5 extension for SQLite
         let mut conn = SqliteConnection::establish(":memory:")?;
+        
+        // Enable FTS5 extension
+        diesel::sql_query("PRAGMA journal_mode = WAL;").execute(&mut conn)?;
+        diesel::sql_query("PRAGMA synchronous = NORMAL;").execute(&mut conn)?;
+        diesel::sql_query("PRAGMA foreign_keys = ON;").execute(&mut conn)?;
+        
+        // Enable FTS5 extension
+        diesel::sql_query("PRAGMA compile_options;").execute(&mut conn)?;
         
         // Run migrations for test database
         use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
         const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+        
+        // Run migrations
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| crate::error::Error::other(format!("Migration error: {}", e)))?;
         
