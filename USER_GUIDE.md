@@ -2,7 +2,44 @@
 
 Welcome to Rustash! This guide provides everything you need to know to install, configure, and master the Rustash snippet manager.
 
-## 1. Introduction
+## 1. Security Notice
+
+Rustash is designed with security in mind, but there are important security considerations you should be aware of:
+
+### Important Security Notes
+
+1. **Snippet Execution**
+   - Rustash **does not** execute snippets automatically, but be cautious when copying and pasting commands from untrusted sources.
+   - Always review snippets before executing them, especially those from untrusted sources.
+
+2. **Database Security**
+   - By default, Rustash stores snippets in a SQLite database file (`rustash.db`) in your current directory.
+   - You can customize the database location using the `DATABASE_URL` environment variable.
+   - **Warning**: Be careful when setting `DATABASE_URL` to avoid accidentally overwriting important files.
+
+3. **Sensitive Information**
+   - Avoid storing sensitive information like passwords or API keys directly in snippets.
+   - Consider using environment variables or a secure credential manager for sensitive data.
+
+For a complete security analysis, see [SECURITY.md](./SECURITY.md).
+
+## 7. Security FAQ
+
+### Is Rustash secure to use?
+Yes, Rustash is designed with security in mind. It's written in Rust, which provides memory safety by default, and avoids common security pitfalls like SQL injection by using the Diesel ORM.
+
+### Can Rustash execute commands automatically?
+No, Rustash only copies snippets to your clipboard. You must explicitly paste and execute commands yourself.
+
+### How can I secure my snippets?
+- Store your database in a secure location (e.g., `~/.config/rustash/`).
+- Use filesystem permissions to restrict access to your database.
+- Consider using full-disk encryption for sensitive data.
+
+### What should I do if I find a security issue?
+Please report security issues by opening an issue on our GitHub repository. For sensitive issues, you can contact the maintainers directly.
+
+## 2. Introduction
 
 **Rustash** is a modern, high-performance snippet manager built in Rust. It lives in your command line, allowing you to quickly add, search, and use code snippets, shell commands, or any other text you need to access frequently.
 
@@ -59,10 +96,14 @@ To use Rustash, you need to build it from the source code.
 Once installed, you can get started right away.
 
 1.  **Initialize the Database:**
-    The first time you run a command, Rustash will automatically create a `rustash.db` file in your current directory. You can also specify a different location:
+    The first time you run a command, Rustash will automatically create a `rustash.db` file in your current directory. For better security, it's recommended to use a standard location:
     ```bash
-    export DATABASE_URL=/path/to/your/snippets.db
+    # Recommended: Use a standard config directory
+    mkdir -p ~/.config/rustash
+    export DATABASE_URL=~/.config/rustash/rustash.db
     ```
+    
+    > **Security Note**: Be cautious when setting a custom `DATABASE_URL` as it could potentially point to sensitive system files if not properly validated.
 
 2.  **Add a Snippet:**
     Let's add a Git commit template with a placeholder.
@@ -102,6 +143,8 @@ A snippet is a piece of text with a `title`, `content`, and one or more `tags`.
 ### Placeholders
 Snippet content can contain dynamic placeholders using `{{variable_name}}` syntax. These are replaced with values when you use the `rustash use` command.
 
+**Security Consideration**: Be cautious when using placeholders in commands, especially with untrusted input, as they could be used for command injection if the resulting command is executed in a shell.
+
 **Example:**
 Snippet Content: `ssh {{user}}@{{host}}`
 Command: `rustash use 2 --var user=admin --var host=server1.com`
@@ -113,7 +156,32 @@ Rustash offers three ways to find snippets:
 2.  **Tag Filter (`--tag`):** Finds all snippets that include the specified tag.
 3.  **Full-Text Search (`--search`):** A more powerful search that uses a dedicated FTS5 index for relevance-based searching across title, content, and tags.
 
-## 5. Command Reference
+## 5. Security Best Practices
+
+When using Rustash, follow these security best practices:
+
+1. **Use Official Sources**
+   - Only install Rustash from the official repository or trusted package managers.
+   - Verify checksums when downloading pre-built binaries.
+
+2. **Regular Updates**
+   - Keep Rustash and its dependencies up to date to receive security patches.
+   - Run `cargo update` regularly if you built from source.
+
+3. **Secure Your Database**
+   - Store your database file in a secure location with proper file permissions.
+   - Consider encrypting the database if it contains sensitive information.
+   - Back up your database regularly.
+
+4. **Audit Dependencies**
+   - Periodically run `cargo audit` to check for known vulnerabilities in dependencies.
+   - Review and update dependencies with known security issues.
+
+5. **Be Cautious with Automation**
+   - When using Rustash in scripts, validate all inputs.
+   - Be especially careful with the `--var` flag to prevent command injection.
+
+## 6. Command Reference
 
 ### `rustash add`
 Adds a new snippet to the database.

@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// A snippet stored in the database
-#[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
 #[diesel(table_name = snippets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Snippet {

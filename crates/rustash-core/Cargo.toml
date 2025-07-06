@@ -32,6 +32,9 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 # Database connection pooling
 r2d2 = { workspace = true }
 
+# Platform-specific paths
+home = "0.5"
+
 # SQLite backend (default)
 libsqlite3-sys = { workspace = true }
 

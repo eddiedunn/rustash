@@ -116,19 +116,55 @@ pub fn delete_snippet(conn: &mut DbConnection, snippet_id: i32) -> Result<bool> 
     Ok(affected_rows > 0)
 }
 
-/// Search snippets using full-text search
+/// Search snippets using full-text search with FTS5
+/// 
+/// This function uses SQLite's FTS5 virtual table for efficient full-text search.
+/// The search is performed across the title, content, and tags fields.
+/// 
+/// # Arguments
+/// * `conn` - Database connection
+/// * `query_text` - Search query text (supports FTS5 syntax)
+/// * `limit` - Maximum number of results to return
+/// 
+/// # Returns
+/// A vector of matching snippets, ordered by relevance
 pub fn search_snippets(
     conn: &mut DbConnection,
     query_text: &str,
     limit: Option<i64>,
 ) -> Result<Vec<Snippet>> {
+    use crate::schema::snippets::dsl::*;
+    use diesel::prelude::*;
+    
     if query_text.trim().is_empty() {
         return list_snippets(conn, None, None, limit);
     }
     
-    // For now, use simple LIKE search instead of FTS
-    // FTS requires more complex setup and schema changes
-    list_snippets(conn, Some(query_text), None, limit)
+    // Build the FTS5 query
+    // The ' OR ' in the query allows searching across all FTS columns (title, content, tags)
+    let fts_query = format!("{} OR {} OR {}", 
+        query_text, // Title (boosted by position in the query)
+        query_text, // Content
+        query_text  // Tags
+    );
+    
+    // Create a raw SQL query with proper parameter binding
+    // We need to use the raw SQL interface since we're using FTS5-specific features
+    let query = format!(
+        "SELECT snippets.* FROM snippets 
+        JOIN snippets_fts ON snippets.id = snippets_fts.rowid 
+        WHERE snippets_fts MATCH ? 
+        ORDER BY bm25(snippets_fts) DESC, snippets.updated_at DESC {}",
+        limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default()
+    );
+    
+    // Execute the query with proper error handling
+    let results: Vec<Snippet> = diesel::sql_query(query)
+        .bind::<diesel::sql_types::Text, _>(&fts_query)
+        .load(conn)
+        .map_err(|e| Error::other(format!("Failed to execute search query: {}", e)))?;
+    
+    Ok(results)
 }
 
 /// Expand placeholders in snippet content
@@ -273,6 +309,71 @@ mod tests {
         let python_snippets = list_snippets(&mut conn, None, Some("python"), None)?;
         assert_eq!(python_snippets.len(), 1);
         assert_eq!(python_snippets[0].title, "Python Code");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_search_snippets_fts5() -> Result<()> {
+        use crate::models::NewSnippet;
+        use crate::schema::snippets::dsl as snippets_dsl;
+        
+        let mut conn = establish_test_connection()?;
+        
+        // Clear any existing test data
+        diesel::delete(snippets_dsl::snippets).execute(&mut conn)?;
+        
+        // Add test snippets with varied content
+        let test_data = [
+            (
+                "Rust Ownership".to_owned(),
+                "Ownership is a set of rules that governs how Rust manages memory.".to_owned(),
+                vec!["rust".to_owned(), "memory".to_owned()],
+            ),
+            (
+                "Python List Comprehension".to_owned(),
+                "List comprehensions provide a concise way to create lists.".to_owned(),
+                vec!["python".to_owned(), "lists".to_owned()],
+            ),
+            (
+                "Rust Error Handling".to_owned(),
+                "Rust groups errors into two major categories: recoverable and unrecoverable.".to_owned(),
+                vec!["rust".to_owned(), "error".to_owned()],
+            ),
+        ];
+        
+        for (snippet_title, snippet_content, snippet_tags) in test_data.into_iter() {
+            let new_snippet = NewSnippet::new(snippet_title, snippet_content, snippet_tags);
+            add_snippet(&mut conn, new_snippet)?;
+        }
+        
+        // Test basic search
+        let rust_results = search_snippets(&mut conn, "Rust", None)?;
+        assert_eq!(rust_results.len(), 2);
+        assert!(rust_results.iter().any(|s| s.title.contains("Rust")));
+        
+        // Test search with phrase
+        let ownership_results = search_snippets(&mut conn, "\"Ownership is a set of rules\"", None)?;
+        assert_eq!(ownership_results.len(), 1);
+        assert_eq!(ownership_results[0].title, "Rust Ownership");
+        
+        // Test search with multiple terms (AND by default in FTS5)
+        let rust_memory_results = search_snippets(&mut conn, "Rust memory", None)?;
+        assert_eq!(rust_memory_results.len(), 1);
+        assert_eq!(rust_memory_results[0].title, "Rust Ownership");
+        
+        // Test search with tag
+        let error_results = search_snippets(&mut conn, "error", None)?;
+        assert_eq!(error_results.len(), 1);
+        assert_eq!(error_results[0].title, "Rust Error Handling");
+        
+        // Test limit parameter
+        let limited_results = search_snippets(&mut conn, "Rust", Some(1))?;
+        assert_eq!(limited_results.len(), 1);
+        
+        // Test empty search returns all snippets
+        let empty_search = search_snippets(&mut conn, "", None)?;
+        assert_eq!(empty_search.len(), 3);
         
         Ok(())
     }

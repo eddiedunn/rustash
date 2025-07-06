@@ -21,7 +21,7 @@ pub struct UseCommand {
     pub copy: bool,
     
     /// Interactive mode: prompt for missing variables
-    #[arg(short, long)]
+    #[arg(short, long, alias = "fzf")]
     pub interactive: bool,
     
     /// Just print the expanded content without copying
