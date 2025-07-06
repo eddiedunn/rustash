@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Args;
-use rustash_core::{establish_connection, list_snippets_with_tags, search_snippets, SnippetWithTags};
+use rustash_core::{establish_connection, list_snippets_with_tags};
 use crate::fuzzy::fuzzy_select_snippet;
 use crate::utils::format_snippet_list;
 
@@ -15,10 +15,6 @@ pub struct ListCommand {
     /// Filter snippets by tag
     #[arg(short, long)]
     pub tag: Option<String>,
-    
-    /// Use full-text search instead of simple filtering
-    #[arg(short, long)]
-    pub search: bool,
     
     /// Maximum number of results to show
     #[arg(short, long, default_value = "50")]
@@ -37,21 +33,13 @@ impl ListCommand {
     pub fn execute(self) -> Result<()> {
         let mut conn = establish_connection()?;
         
-        // Get snippets based on search mode
-        let snippets = if self.search && self.filter.is_some() {
-            // Use full-text search
-            let query = self.filter.as_ref().unwrap();
-            let raw_snippets = search_snippets(&mut conn, query, Some(self.limit))?;
-            raw_snippets.into_iter().map(SnippetWithTags::from).collect()
-        } else {
-            // Use regular filtering
-            list_snippets_with_tags(
-                &mut conn,
-                self.filter.as_deref(),
-                self.tag.as_deref(),
-                Some(self.limit),
-            )?
-        };
+        // Get snippets with filtering and searching
+        let snippets = list_snippets_with_tags(
+            &mut conn,
+            self.filter.as_deref(),
+            self.tag.as_deref(),
+            Some(self.limit),
+        )?;
         
         if snippets.is_empty() {
             println!("No snippets found.");

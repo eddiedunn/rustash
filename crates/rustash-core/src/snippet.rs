@@ -40,25 +40,47 @@ pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_id: i32) -> Result<Opt
     Ok(result)
 }
 
-/// List all snippets with optional filtering
+/// List all snippets with optional filtering using FTS5 for text search
+/// 
+/// This function uses SQLite's FTS5 virtual table for efficient full-text search
+/// when a filter_text is provided. For tag filtering, it still uses LIKE as a fallback
+/// since tag filtering would benefit from a normalized schema in the future.
+/// 
+/// # Arguments
+/// * `conn` - Database connection
+/// * `filter_text` - Optional text to search for in title, content, or tags
+/// * `tag_filter` - Optional tag to filter by (uses LIKE matching)
+/// * `limit` - Maximum number of results to return
+/// 
+/// # Returns
+/// A vector of matching snippets, ordered by relevance (if searching) or update time
 pub fn list_snippets(
     conn: &mut DbConnection,
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<Snippet>> {
+    // If we have filter text, use the FTS5 search
+    if let Some(query_text) = filter_text {
+        // First, get snippets matching the text search
+        let mut results = search_snippets(conn, query_text, limit)?;
+        
+        // If we also have a tag filter, apply it to the results
+        if let Some(tag) = tag_filter {
+            let tag_lower = tag.to_lowercase();
+            results.retain(|snippet| {
+                // Check if any tag matches (case-insensitive)
+                snippet.tags.to_lowercase().contains(&tag_lower)
+            });
+        }
+        
+        return Ok(results);
+    }
+    
+    // No text filter, use regular query with optional tag filter
     use crate::schema::snippets::dsl::*;
     
     let mut query = snippets.into_boxed();
-    
-    // Apply text filter if provided
-    if let Some(filter) = filter_text {
-        let pattern = format!("%{filter}%");
-        query = query.filter(
-            title.like(pattern.clone())
-                .or(content.like(pattern))
-        );
-    }
     
     // Apply tag filter if provided
     if let Some(tag) = tag_filter {
@@ -139,21 +161,19 @@ pub fn search_snippets(
         return list_snippets(conn, None, None, limit);
     }
     
-    // Build the FTS5 query
-    // The ' OR ' in the query allows searching across all FTS columns (title, content, tags)
+    // Prepare the FTS5 query - search across all columns with the same weight
     let fts_query = format!("{} OR {} OR {}", 
-        query_text, // Title (boosted by position in the query)
+        query_text, // Title
         query_text, // Content
         query_text  // Tags
     );
     
-    // Create a raw SQL query with proper parameter binding
-    // We need to use the raw SQL interface since we're using FTS5-specific features
+    // Use raw SQL for FTS5 search since Diesel's query builder doesn't fully support FTS5 features
     let query = format!(
         "SELECT snippets.* FROM snippets 
-        JOIN snippets_fts ON snippets.id = snippets_fts.rowid 
+        INNER JOIN snippets_fts ON snippets.id = snippets_fts.rowid 
         WHERE snippets_fts MATCH ? 
-        ORDER BY bm25(snippets_fts) DESC, snippets.updated_at DESC {}",
+        ORDER BY bm25(snippets_fts) ASC, snippets.updated_at DESC {}",
         limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default()
     );
     

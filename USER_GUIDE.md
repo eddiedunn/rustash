@@ -23,7 +23,41 @@ Rustash is designed with security in mind, but there are important security cons
 
 For a complete security analysis, see [SECURITY.md](./SECURITY.md).
 
-## 7. Security FAQ
+## 7. Improved Search and Filtering
+
+Rustash now features enhanced search capabilities powered by SQLite's FTS5 full-text search engine. This provides faster and more accurate search results compared to the previous implementation.
+
+### Key Improvements
+
+- **Unified Search**: The `--search` flag has been removed. All text filtering now uses the more powerful FTS5 search.
+- **Faster Performance**: Full-text search is now significantly faster, especially for large snippet collections.
+- **Better Relevance**: Results are ranked by relevance using the BM25 algorithm.
+- **Simplified Commands**: No need to remember multiple flags - just use `--filter` for all your search needs.
+
+### Examples
+
+```bash
+# Search for snippets (powerful FTS5 search with relevance ranking)
+rustash list --filter "database OR postgres"
+
+# Search with a tag filter
+rustash list --filter "database" --tag "sql"
+
+# Search for exact phrases by using quotes
+rustash list --filter '"database migration"'
+```
+
+### Search Syntax
+
+The search supports the following operators:
+
+- `OR`: Match any term (e.g., `database OR postgres`)
+- `AND`: Match all terms (e.g., `database AND migration`)
+- `-` or `NOT`: Exclude terms (e.g., `database -mysql`)
+- `""`: Phrase search (e.g., `"database migration"`)
+- `*`: Prefix matching (e.g., `data*` matches "database", "data", etc.)
+
+## 8. Security FAQ
 
 ### Is Rustash secure to use?
 Yes, Rustash is designed with security in mind. It's written in Rust, which provides memory safety by default, and avoids common security pitfalls like SQL injection by using the Diesel ORM.
@@ -154,7 +188,7 @@ Result: `ssh admin@server1.com`
 Rustash offers three ways to find snippets:
 1.  **Simple Filter (`--filter`):** A case-insensitive `LIKE` search on the `title` and `content` fields. Good for quick lookups.
 2.  **Tag Filter (`--tag`):** Finds all snippets that include the specified tag.
-3.  **Full-Text Search (`--search`):** A more powerful search that uses a dedicated FTS5 index for relevance-based searching across title, content, and tags.
+3.  **Full-Text Search (`--filter`):** A more powerful search that uses a dedicated FTS5 index for relevance-based searching across title, content, and tags.
 
 ## 5. Security Best Practices
 
@@ -218,7 +252,6 @@ Usage: rustash list [OPTIONS]
 **Options:**
 *   `-f, --filter <TEXT>`: Filter by text in title or content.
 *   `-t, --tag <TAG>`: Filter by a specific tag.
-*   `-s, --search`: Use full-text search (should be combined with `--filter`).
 *   `-l, --limit <LIMIT>`: Maximum number of results to show. (Default: 50)
 *   `--interactive`: Use a fuzzy finder to interactively select a snippet from the results.
 *   `--format <FORMAT>`: Output format. (Default: `table`)
@@ -236,8 +269,8 @@ rustash list
 # Find snippets tagged 'rust' in a compact format
 rustash list --tag rust --format compact
 
-# Full-text search for "database query" and output as JSON
-rustash list --search --filter "database query" --format json
+# Search for snippets (powerful FTS5 search with relevance ranking)
+rustash list --filter "database OR postgres"
 
 # Interactively select a snippet
 rustash list --interactive
