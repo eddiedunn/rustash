@@ -80,10 +80,3 @@ expect_used = "deny"
 cognitive_complexity = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
-
-[workspace.features]
-default = ["sqlite"]
-sqlite = ["libsqlite3-sys"]
-postgres = ["diesel-async", "bb8"]
-desktop = ["tauri"]
-vector-search = ["sqlite-vss"]

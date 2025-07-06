@@ -156,32 +156,3 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
     
     Ok(())
 }
-
-/// Get terminal width for formatting
-pub fn get_terminal_width() -> usize {
-    Term::stdout().size().1 as usize
-}
-
-/// Truncate text to fit within a given width
-pub fn truncate_text(text: &str, max_width: usize) -> String {
-    if text.len() <= max_width {
-        text.to_string()
-    } else if max_width <= 3 {
-        "...".to_string()
-    } else {
-        format!("{}...", &text[..max_width - 3])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_truncate_text() {
-        assert_eq!(truncate_text("hello", 10), "hello");
-        assert_eq!(truncate_text("hello world", 5), "he...");
-        assert_eq!(truncate_text("hello", 3), "...");
-        assert_eq!(truncate_text("hello", 2), "...");
-    }
-}

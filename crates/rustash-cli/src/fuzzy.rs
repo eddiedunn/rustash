@@ -85,6 +85,8 @@ mod tests {
     use super::*;
     use chrono::Utc;
     
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn create_test_snippet(id: i32, title: &str, content: &str, tags: Vec<String>) -> SnippetWithTags {
         SnippetWithTags {
             id: Some(id),

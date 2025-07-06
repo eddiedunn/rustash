@@ -133,7 +133,6 @@ pub fn search_snippets(
     query_text: &str,
     limit: Option<i64>,
 ) -> Result<Vec<Snippet>> {
-    use crate::schema::snippets::dsl::*;
     use diesel::prelude::*;
     
     if query_text.trim().is_empty() {
