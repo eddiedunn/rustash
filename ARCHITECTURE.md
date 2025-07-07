@@ -17,23 +17,23 @@ Rustash is structured as a Rust workspace, promoting clear separation of concern
 
 ```mermaid
 graph TD
-    subgraph User Interfaces
-        CLI[crates/rustash-cli]
-        Desktop[crates/rustash-desktop (Tauri)]
+    subgraph User_Interfaces["User Interfaces"]
+        CLI["crates/rustash-cli"]
+        Desktop["crates/rustash-desktop Tauri"]
     end
 
-    subgraph Core Logic
-        Core[crates/rustash-core]
+    subgraph Core_Logic["Core Logic"]
+        Core["crates/rustash-core"]
     end
 
-    subgraph Shared
-        Utils[crates/utils (Proposed)]
-        Macros[crates/macros]
+    subgraph Shared["Shared"]
+        Utils["crates/utils (Proposed)"]
+        Macros["crates/macros"]
     end
 
-    subgraph Build & Tooling
-        XTask[xtask]
-        PRPs[PRPs & .claude]
+    subgraph Build_Tooling["Build & Tooling"]
+        XTask["xtask"]
+        PRPs["PRPs & .claude"]
     end
 
     CLI --> Core
