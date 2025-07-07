@@ -1,9 +1,14 @@
 -- Drop triggers first
-DROP TRIGGER IF EXISTS snippets_fts_delete;
-DROP TRIGGER IF EXISTS snippets_fts_update;
-DROP TRIGGER IF EXISTS snippets_fts_insert;
+DROP TRIGGER IF EXISTS snippets_au;
+DROP TRIGGER IF EXISTS snippets_ad;
+DROP TRIGGER IF EXISTS snippets_ai;
 
--- Drop FTS table
+-- Drop FTS table and its components
+DROP TABLE IF EXISTS snippets_fts_idx;
+DROP TABLE IF EXISTS snippets_fts_docsize;
+DROP TABLE IF EXISTS snippets_fts_data;
+DROP TABLE IF EXISTS snippets_fts_content;
+DROP TABLE IF EXISTS snippets_fts_config;
 DROP TABLE IF EXISTS snippets_fts;
 
 -- Drop indexes

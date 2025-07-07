@@ -1,38 +1,49 @@
 //! Snippet CRUD operations
 
 use crate::database::DbConnection;
-use crate::error::{Error, Result};
-use crate::models::{NewSnippet, Snippet, SnippetListItem, SnippetWithTags, UpdateSnippet};
+use crate::error::{Error, OptionExt, Result, UuidExt};
+use crate::models::{NewDbSnippet, Snippet, SnippetListItem, SnippetWithTags, UpdateSnippet};
 use diesel::prelude::*;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Add a new snippet to the database
-pub fn add_snippet(conn: &mut DbConnection, new_snippet: NewSnippet) -> Result<Snippet> {
+pub fn add_snippet(conn: &mut DbConnection, new_snippet: NewDbSnippet) -> Result<Snippet> {
     // Validate input
     validate_snippet_content(&new_snippet.title, &new_snippet.content)?;
     
     use crate::schema::snippets::dsl::*;
     
-    // SQLite doesn't support RETURNING, so we insert and then fetch
+    // SQLite doesn't support RETURNING with `last_insert_rowid()` for non-integer PKs,
+    // so we insert and then fetch by UUID
     diesel::insert_into(snippets)
         .values(&new_snippet)
         .execute(conn)?;
     
-    // Get the last inserted row
+    // Get the inserted row by UUID
     let result = snippets
-        .order(id.desc())
+        .filter(uuid.eq(&new_snippet.uuid))
         .select(Snippet::as_select())
-        .first(conn)?;
+        .first(conn)
+        .map_err(|e| {
+            if let diesel::result::Error::NotFound = e {
+                Error::other(format!("Failed to retrieve newly created snippet with UUID: {}", new_snippet.uuid))
+            } else {
+                e.into()
+            }
+        })?;
     
     Ok(result)
 }
 
-/// Get a snippet by ID
-pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_id: i32) -> Result<Option<Snippet>> {
+/// Get a snippet by UUID
+pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_uuid: &str) -> Result<Option<Snippet>> {
+    // Validate UUID format
+    snippet_uuid.parse_uuid()?;
     use crate::schema::snippets::dsl::*;
     
     let result = snippets
-        .filter(id.eq(snippet_id))
+        .filter(uuid.eq(snippet_uuid))
         .select(Snippet::as_select())
         .first(conn)
         .optional()?;
@@ -81,9 +92,9 @@ pub fn list_snippets(
             
             // Build and execute the FTS query
             let query = format!(
-                "SELECT s.id, s.title, s.tags, s.updated_at 
+                "SELECT s.uuid, s.title, s.tags, s.updated_at 
                  FROM snippets s 
-                 JOIN snippets_fts ON s.id = snippets_fts.rowid 
+                 JOIN snippets_fts ON s.rowid = snippets_fts.rowid 
                  WHERE snippets_fts MATCH ?
                  ORDER BY bm25(snippets_fts, 2.0, 1.0, 0.5), s.updated_at DESC {}",
                 limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default()
@@ -102,16 +113,16 @@ pub fn list_snippets(
     // No filters provided, return all snippets ordered by last updated.
     use crate::schema::snippets::dsl::*;
     
-    // Only select the fields needed for SnippetListItem
+    // Fallback to listing all snippets if no filters
     let results = if let Some(limit_val) = limit {
         snippets
-            .select((id, title, tags, updated_at))
+            .select((uuid, title, tags, updated_at))
             .order(updated_at.desc())
             .limit(limit_val)
             .load::<SnippetListItem>(conn)?
     } else {
         snippets
-            .select((id, title, tags, updated_at))
+            .select((uuid, title, tags, updated_at))
             .order(updated_at.desc())
             .load::<SnippetListItem>(conn)?
     };
@@ -122,38 +133,59 @@ pub fn list_snippets(
 /// Update an existing snippet
 pub fn update_snippet(
     conn: &mut DbConnection,
-    snippet_id: i32,
+    snippet_uuid: &str,
     update_data: UpdateSnippet,
 ) -> Result<Snippet> {
     use crate::schema::snippets::dsl::*;
+    
+    // Validate UUID format
+    snippet_uuid.parse_uuid()?;
     
     // Validate input if title or content is being updated
     if let (Some(title_val), Some(content_val)) = (&update_data.title, &update_data.content) {
         validate_snippet_content(title_val, content_val)?;
     }
     
-    // SQLite doesn't support RETURNING, so we update and then fetch
-    diesel::update(snippets.filter(id.eq(snippet_id)))
+    // Update the snippet and get the number of affected rows
+    let rows_updated = diesel::update(snippets.filter(uuid.eq(snippet_uuid)))
         .set(&update_data)
         .execute(conn)?;
     
-    // Get the updated row
+    if rows_updated == 0 {
+        return Err(Error::not_found(format!("Snippet with UUID: {}", snippet_uuid)));
+    }
+    
+    // Fetch the updated snippet
     let result = snippets
-        .filter(id.eq(snippet_id))
+        .filter(uuid.eq(snippet_uuid))
         .select(Snippet::as_select())
-        .first(conn)?;
+        .first(conn)
+        .map_err(|e| {
+            if let diesel::result::Error::NotFound = e {
+                Error::other(format!("Failed to retrieve updated snippet with UUID: {}", snippet_uuid))
+            } else {
+                e.into()
+            }
+        })?;
     
     Ok(result)
 }
 
-/// Delete a snippet by ID
-pub fn delete_snippet(conn: &mut DbConnection, snippet_id: i32) -> Result<bool> {
+/// Delete a snippet by UUID
+pub fn delete_snippet(conn: &mut DbConnection, snippet_uuid: &str) -> Result<bool> {
     use crate::schema::snippets::dsl::*;
     
-    let affected_rows = diesel::delete(snippets.filter(id.eq(snippet_id)))
+    // Validate UUID format
+    snippet_uuid.parse_uuid()?;
+    
+    let num_deleted = diesel::delete(snippets.filter(uuid.eq(snippet_uuid)))
         .execute(conn)?;
     
-    Ok(affected_rows > 0)
+    if num_deleted == 0 {
+        return Err(Error::not_found(format!("Snippet with UUID: {}", snippet_uuid)));
+    }
+    
+    Ok(true)
 }
 
 /// Search snippets using full-text search with FTS5
@@ -178,22 +210,38 @@ pub fn search_snippets(
     list_snippets(conn, Some(query_text), None, limit)
 }
 
-/// Expand placeholders in snippet content
+/// Expand placeholders in snippet content with provided variables
+/// 
+/// # Arguments
+/// * `content` - The content with placeholders in the format `{{key}}`
+/// * `variables` - A map of variable names to their values
+/// 
+/// # Returns
+/// The content with all placeholders replaced by their corresponding values
 pub fn expand_placeholders(content: &str, variables: &HashMap<String, String>) -> String {
     let mut result = content.to_string();
     
     for (key, value) in variables {
-        let placeholder = format!("{{{{{key}}}}}");
+        let placeholder = format!("{{{{}}}}", key);
         result = result.replace(&placeholder, value);
     }
     
     result
 }
 
-/// Get snippets with parsed tags
+/// Get snippets with parsed tags and full content
 /// 
 /// This function first gets a list of snippet list items (without content) and then
 /// fetches the full content for each snippet to include in the result.
+/// 
+/// # Arguments
+/// * `conn` - Database connection
+/// * `filter_text` - Optional text to search for in title or content
+/// * `tag_filter` - Optional tag to filter by
+/// * `limit` - Maximum number of results to return
+/// 
+/// # Returns
+/// A vector of `SnippetWithTags` containing the full snippet data with parsed tags
 pub fn list_snippets_with_tags(
     conn: &mut DbConnection,
     filter_text: Option<&str>,
@@ -210,20 +258,36 @@ pub fn list_snippets_with_tags(
         return Ok(Vec::new());
     }
     
-    // Extract the IDs of the snippets we need to fetch full details for
-    let snippet_ids: Vec<i32> = snippet_items
-        .into_iter()
-        .filter_map(|item| item.id)
+    // Extract UUIDs from the snippet items
+    let snippet_uuids: Vec<&str> = snippet_items
+        .iter()
+        .map(|item| item.uuid.as_str())
         .collect();
     
-    // Fetch the full snippets in a single query
+    // Fetch the full snippets in a single query using the UUIDs
     let full_snippets = snippets
-        .filter(id.eq_any(snippet_ids))
-        .select(Snippet::as_select())
-        .load::<Snippet>(conn)?;
+        .filter(uuid.eq_any(snippet_uuids))
+        .select(DbSnippet::as_select())
+        .load::<DbSnippet>(conn)?;
     
-    // Convert to SnippetWithTags and return
-    Ok(full_snippets.into_iter().map(Into::into).collect())
+    // Convert DbSnippet to SnippetWithTags
+    let mut results: Vec<SnippetWithTags> = full_snippets
+        .into_iter()
+        .map(SnippetWithTags::from)
+        .collect();
+    
+    // Maintain the original order from list_snippets
+    let uuid_to_index: std::collections::HashMap<_, _> = snippet_items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| (item.uuid.as_str(), i))
+        .collect();
+    
+    results.sort_by_cached_key(|s| {
+        *uuid_to_index.get(s.uuid.as_str()).unwrap_or(&usize::MAX)
+    });
+    
+    Ok(results)
 }
 
 /// Validate snippet content
@@ -319,17 +383,17 @@ mod tests {
         let mut conn = pool.get()?;
         
         // Add test snippets
-        let snippet1 = NewSnippet::new(
+        let snippet1 = NewDbSnippet::new(
             "Rust Code Snippet".to_string(),
             "fn main() {}".to_string(),
             vec!["rust".to_string(), "code".to_string()],
         );
-        let snippet2 = NewSnippet::new(
+        let snippet2 = NewDbSnippet::new(
             "Python Code Example".to_string(),
             "print('hello')".to_string(),
             vec!["python".to_string(), "code".to_string()],
         );
-        let snippet3 = NewSnippet::new(
+        let snippet3 = NewDbSnippet::new(
             "Another Rust Item".to_string(),
             "struct a;".to_string(),
             vec!["rust".to_string(), "structs".to_string()],

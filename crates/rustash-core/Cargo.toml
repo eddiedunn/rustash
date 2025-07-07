@@ -12,12 +12,17 @@ categories.workspace = true
 
 [dependencies]
 # Database
-diesel = { workspace = true, features = ["chrono", "serde_json"] }
-diesel_migrations = { workspace = true }
+diesel = { workspace = true, features = ["chrono", "serde_json", "uuid"] }
+diesel_migrations = { workspace = true, features = ["sqlite"] }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+erased-serde = { workspace = true }
+
+# Async
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # Time handling
 chrono = { workspace = true, features = ["serde"] }
@@ -27,7 +32,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 # UUID generation
-uuid = { workspace = true, features = ["v4", "serde"] }
+uuid = { workspace = true, features = ["v4", "serde", "v7"] }
 
 # Database connection pooling
 r2d2 = { workspace = true }
@@ -38,9 +43,13 @@ home = "0.5"
 # SQLite backend (default)
 libsqlite3-sys = { workspace = true }
 
-# PostgreSQL backend (optional)
-diesel-async = { workspace = true }
+# PostgreSQL backend
 bb8 = { workspace = true }
+bb8-postgres = { workspace = true }
+tokio-postgres = { workspace = true }
+
+# Vector search (commented out due to build issues)
+# sqlite-vss = { workspace = true }
 
 # Vector search (commented out due to build issues)
 # sqlite-vss = { workspace = true }

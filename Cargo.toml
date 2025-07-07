@@ -33,10 +33,11 @@ dialoguer = "0.11"
 indicatif = "0.17"
 console = "0.15"
 termcolor = "1.4"
+dirs = "5.0"
 
 # Database dependencies
 diesel = { version = "2.2", features = ["chrono", "uuid", "r2d2"] }
-diesel_migrations = "2.2"
+diesel_migrations = { version = "2.2", features = ["sqlite"] }
 r2d2 = "0.8"
 
 # SQLite backend (default)
@@ -45,6 +46,12 @@ libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 # PostgreSQL backend (optional)
 diesel-async = { version = "0.5", features = ["postgres", "bb8"] }
 bb8 = { version = "0.8" }
+bb8-postgres = { version = "0.8" }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+
+# Async utilities
+async-trait = "0.1"
+erased-serde = "0.3"
 
 # Fuzzy finder and search
 skim = "0.10"

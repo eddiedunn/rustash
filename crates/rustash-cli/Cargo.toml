@@ -27,18 +27,21 @@ dialoguer = { workspace = true }
 console = { workspace = true }
 indicatif = { workspace = true }
 
-# Lazy initialization
-lazy_static = { workspace = true }
-
 # Clipboard integration
 arboard = { workspace = true }
 
 # Fuzzy finder
 skim = { workspace = true }
 
+# Lazy initialization
+lazy_static = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+
+# Platform-specific paths
+dirs = { workspace = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }

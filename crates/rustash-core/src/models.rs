@@ -7,14 +7,14 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
-#[diesel(table_name = snippets)]
+#[diesel(table_name = crate::schema::snippets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct DbSnippet {
-    pub id: i32,
     pub uuid: String, // UUID stored as string
     pub title: String,
     pub content: String,
@@ -37,20 +37,30 @@ pub struct NewDbSnippet {
 
 /// A lightweight representation of a snippet for list views
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
-#[diesel(table_name = snippets)]
+#[diesel(table_name = crate::schema::snippets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct SnippetListItem {
-    pub id: i32,
+    #[diesel(sql_type = Text)]
     pub uuid: String,
+    #[diesel(sql_type = Text)]
     pub title: String,
+    #[diesel(sql_type = Text)]
     pub tags: String, // JSON array stored as string
+    #[diesel(sql_type = Timestamp)]
     pub updated_at: NaiveDateTime,
 }
 
 /// A snippet with parsed tags for easier handling
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnippetWithTags {
+    /// The UUID of the snippet as a string for easy serialization/deserialization
+    #[serde(rename = "id")]
+    pub uuid: String,
+    
+    /// The parsed Uuid for internal use
+    #[serde(skip)]
     pub id: Uuid,
+    
     pub title: String,
     pub content: String,
     pub tags: Vec<String>, // Parsed from JSON
@@ -59,67 +69,164 @@ pub struct SnippetWithTags {
     pub updated_at: DateTime<Utc>,
 }
 
-/// The main Snippet struct that implements MemoryItem
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Snippet {
-    pub id: Uuid,
-    pub title: String,
-    pub content: String,
-    pub tags: Vec<String>,
-    pub embedding: Option<Vec<u8>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+impl SnippetWithTags {
+    /// Create a new SnippetWithTags with the given UUID
+    pub fn with_uuid(uuid: Uuid, title: String, content: String, tags: Vec<String>) -> Self {
+        let now = Utc::now();
+        Self {
+            uuid: uuid.to_string(),
+            id: uuid,
+            title,
+            content,
+            tags,
+            embedding: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+    
+    /// Get the UUID as a Uuid type
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
 }
 
+/// The main Snippet struct that implements MemoryItem
+#[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = crate::schema::snippets)]
+pub struct Snippet {
+    pub uuid: String,
+    pub title: String,
+    pub content: String,
+    pub tags: String, // Stored as JSON string in the database
+    pub embedding: Option<Vec<u8>>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl Snippet {
+    /// Get the UUID as a Uuid type
+    pub fn id(&self) -> Uuid {
+        // This should ideally never fail as we validate UUIDs when creating/updating
+        Uuid::parse_str(&self.uuid).unwrap_or_else(|_| {
+            // In case of invalid UUID (shouldn't happen), generate a new one
+            // This is a fallback and indicates a data consistency issue
+            Uuid::new_v4()
+        })
+    }
+    
+    /// Create a new Snippet with the given UUID
+    pub fn with_uuid(uuid: Uuid, title: String, content: String, tags: Vec<String>) -> Self {
+        let now = Utc::now().naive_utc();
+        Self {
+            uuid: uuid.to_string(),
+            title,
+            content,
+            tags: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
+            embedding: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+impl fmt::Display for Snippet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Snippet {{ id: {}, title: {} }}", self.uuid, self.title)
+    }
+}
+
+// Helper macro to implement Clone for trait objects
+macro_rules! impl_clone_for_trait {
+    ($trait:ident) => {
+        /// Helper trait for cloning trait objects
+        pub trait CloneDyn: $trait {
+            fn clone_dyn(&self) -> Box<dyn $trait>;
+        }
+
+        impl<T> CloneDyn for T
+        where
+            T: $trait + Clone + 'static,
+        {
+            fn clone_dyn(&self) -> Box<dyn $trait> {
+                Box::new(self.clone())
+            }
+        }
+
+        impl Clone for Box<dyn $trait> {
+            fn clone(&self) -> Self {
+                self.clone_dyn()
+            }
+        }
+    };
+}
+
+// Implement Clone for MemoryItem trait objects
+impl_clone_for_trait!(MemoryItem);
+
 impl MemoryItem for Snippet {
-    fn id(&self) -> Uuid { self.id }
+    fn id(&self) -> Uuid { 
+        self.id()
+    }
     
-    fn item_type(&self) -> &'static str { "snippet" }
+    fn item_type(&self) -> &'static str { 
+        "snippet" 
+    }
     
-    fn content(&self) -> &str { &self.content }
+    fn content(&self) -> &str { 
+        &self.content 
+    }
     
     fn metadata(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
         map.insert("title".to_string(), Value::String(self.title.clone()));
-        map.insert("tags".to_string(), json!(self.tags));
-        if let Some(embedding) = &self.embedding {
-            map.insert("has_embedding".to_string(), Value::Bool(true));
-        }
+        
+        // Parse tags from JSON string
+        let tags: Vec<String> = serde_json::from_str(&self.tags).unwrap_or_default();
+        map.insert("tags".to_string(), Value::Array(tags.into_iter().map(Value::String).collect()));
+        
+        // Add timestamps
+        map.insert("created_at".to_string(), Value::String(self.created_at.to_string()));
+        map.insert("updated_at".to_string(), Value::String(self.updated_at.to_string()));
+        
+        // Add the UUID as a string for easy access
+        map.insert("uuid".to_string(), Value::String(self.uuid.clone()));
+        
         map
     }
     
-    fn created_at(&self) -> DateTime<Utc> { self.created_at }
+    fn created_at(&self) -> DateTime<Utc> { 
+        DateTime::from_utc(self.created_at, Utc)
+    }
     
-    fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
+    fn updated_at(&self) -> DateTime<Utc> { 
+        DateTime::from_utc(self.updated_at, Utc)
+    }
 }
 
 // Conversion implementations
 
 impl From<DbSnippet> for Snippet {
     fn from(db_snippet: DbSnippet) -> Self {
-        let tags: Vec<String> = serde_json::from_str(&db_snippet.tags).unwrap_or_default();
-        
         Self {
-            id: Uuid::parse_str(&db_snippet.uuid).unwrap_or_else(|_| Uuid::new_v4()),
+            uuid: db_snippet.uuid,
             title: db_snippet.title,
             content: db_snippet.content,
-            tags,
+            tags: db_snippet.tags, // Store tags as JSON string
             embedding: db_snippet.embedding,
-            created_at: DateTime::<Utc>::from_utc(db_snippet.created_at, Utc),
-            updated_at: DateTime::<Utc>::from_utc(db_snippet.updated_at, Utc),
+            created_at: db_snippet.created_at,
+            updated_at: db_snippet.updated_at,
         }
     }
 }
 
 impl From<Snippet> for NewDbSnippet {
     fn from(snippet: Snippet) -> Self {
-        let tags_json = serde_json::to_string(&snippet.tags).unwrap_or_else(|_| "[]".to_string());
-        
         Self {
-            uuid: snippet.id.to_string(),
+            uuid: snippet.uuid,
             title: snippet.title,
             content: snippet.content,
-            tags: tags_json,
+            tags: snippet.tags, // Already in JSON string format
             embedding: snippet.embedding,
         }
     }
@@ -128,15 +235,35 @@ impl From<Snippet> for NewDbSnippet {
 impl From<DbSnippet> for SnippetWithTags {
     fn from(db_snippet: DbSnippet) -> Self {
         let tags: Vec<String> = serde_json::from_str(&db_snippet.tags).unwrap_or_default();
+        let uuid = Uuid::parse_str(&db_snippet.uuid).unwrap_or_else(|_| Uuid::new_v4());
         
         Self {
-            id: Uuid::parse_str(&db_snippet.uuid).unwrap_or_else(|_| Uuid::new_v4()),
+            uuid: db_snippet.uuid,
+            id: uuid,
             title: db_snippet.title,
             content: db_snippet.content,
             tags,
             embedding: db_snippet.embedding,
-            created_at: DateTime::<Utc>::from_utc(db_snippet.created_at, Utc),
-            updated_at: DateTime::<Utc>::from_utc(db_snippet.updated_at, Utc),
+            created_at: DateTime::<Utc>::from_naive_utc_and_offset(db_snippet.created_at, Utc),
+            updated_at: DateTime::<Utc>::from_naive_utc_and_offset(db_snippet.updated_at, Utc),
+        }
+    }
+}
+
+impl From<Snippet> for SnippetWithTags {
+    fn from(snippet: Snippet) -> Self {
+        let tags: Vec<String> = serde_json::from_str(&snippet.tags).unwrap_or_default();
+        let uuid = Uuid::parse_str(&snippet.uuid).unwrap_or_else(|_| Uuid::new_v4());
+        
+        Self {
+            uuid: snippet.uuid,
+            id: uuid,
+            title: snippet.title,
+            content: snippet.content,
+            tags,
+            embedding: snippet.embedding,
+            created_at: DateTime::<Utc>::from_naive_utc_and_offset(snippet.created_at, Utc),
+            updated_at: DateTime::<Utc>::from_naive_utc_and_offset(snippet.updated_at, Utc),
         }
     }
 }
@@ -144,7 +271,6 @@ impl From<DbSnippet> for SnippetWithTags {
 impl From<DbSnippet> for SnippetListItem {
     fn from(snippet: DbSnippet) -> Self {
         Self {
-            id: snippet.id,
             uuid: snippet.uuid,
             title: snippet.title,
             tags: snippet.tags,

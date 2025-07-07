@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::Args;
 use crate::db;
 use rustash_core::list_snippets_with_tags;
+use rustash_core::SnippetWithTags;
 
 #[derive(Args)]
 pub struct ListCommand {
@@ -28,6 +29,10 @@ pub struct ListCommand {
     /// Output format: table, json, ids
     #[arg(long, default_value = "table")]
     pub format: String,
+
+    /// Use UUIDs for snippet IDs
+    #[arg(long)]
+    pub uuid: bool,
 }
 
 impl ListCommand {
@@ -53,9 +58,7 @@ impl ListCommand {
                 match self.format.as_str() {
                     "json" => println!("{}", serde_json::to_string_pretty(&selected)?),
                     "ids" => {
-                        if let Some(id) = selected.id {
-                            println!("{}", id);
-                        }
+                        println!("{}", selected.id);
                     }
                     _ => format_snippet_list(&[selected], &self.format)?,
                 }
@@ -65,10 +68,8 @@ impl ListCommand {
             match self.format.as_str() {
                 "json" => println!("{}", serde_json::to_string_pretty(&snippets)?),
                 "ids" => {
-                    for snippet in snippets {
-                        if let Some(id) = snippet.id {
-                            println!("{}", id);
-                        }
+                    for snippet in &snippets {
+                        println!("{}", snippet.id);
                     }
                 }
                 _ => format_snippet_list(&snippets, &self.format)?,

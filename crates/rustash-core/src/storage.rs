@@ -85,16 +85,22 @@ impl StorageBackend for InMemoryBackend {
 }
 
 // Helper trait to clone boxed MemoryItems
-trait CloneDyn: MemoryItem {
-    fn clone_dyn(&self) -> Box<dyn MemoryItem>;
+trait CloneDyn: MemoryItem + std::marker::Sized {
+    fn clone_dyn(&self) -> Box<dyn MemoryItem + Send + Sync>;
 }
 
 impl<T> CloneDyn for T
 where
-    T: MemoryItem + Clone + 'static,
+    T: MemoryItem + Clone + Send + Sync + 'static,
 {
-    fn clone_dyn(&self) -> Box<dyn MemoryItem> {
+    fn clone_dyn(&self) -> Box<dyn MemoryItem + Send + Sync> {
         Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn MemoryItem + Send + Sync> {
+    fn clone(&self) -> Self {
+        (**self).clone_dyn()
     }
 }
 

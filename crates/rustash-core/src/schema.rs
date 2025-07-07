@@ -1,8 +1,8 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    snippets (id) {
-        id -> Nullable<Integer>,
+    snippets (uuid) {
+        uuid -> Text,
         title -> Text,
         content -> Text,
         tags -> Text,
@@ -18,8 +18,7 @@ diesel::table! {
         title -> Nullable<Binary>,
         content -> Nullable<Binary>,
         tags -> Nullable<Binary>,
-        #[sql_name = "snippets_fts"]
-        snippets_fts_content -> Nullable<Binary>,
+        snippets_fts -> Nullable<Binary>,
         rank -> Nullable<Binary>,
     }
 }

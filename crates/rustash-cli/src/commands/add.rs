@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 use crate::db;
-use rustash_core::{add_snippet, models::NewSnippet};
+use rustash_core::{add_snippet, models::NewDbSnippet};
 
 #[derive(Args)]
 pub struct AddCommand {

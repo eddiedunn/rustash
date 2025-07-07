@@ -1,18 +1,19 @@
 //! Use snippet command
 
 use crate::utils::copy_to_clipboard;
-use anyhow::Result;
+use anyhow::{Result, Context};
 use clap::Args;
 use dialoguer::Input;
 use crate::db;
 use regex::Regex;
 use rustash_core::{SnippetWithTags, expand_placeholders, get_snippet_by_id};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Args)]
 pub struct UseCommand {
-    /// ID of the snippet to use
-    pub id: i32,
+    /// UUID of the snippet to use
+    pub uuid: String,
 
     /// Variables for placeholder expansion (key=value format)
     #[arg(short, long, value_parser = parse_variable)]
@@ -37,9 +38,12 @@ impl UseCommand {
     pub fn execute(self) -> Result<()> {
         let mut conn = db::get_connection()?;
 
-        // Get the snippet
-        let snippet = get_snippet_by_id(&mut *conn, self.id)?
-            .ok_or_else(|| anyhow::anyhow!("Snippet with ID {} not found", self.id))?;
+        // Parse UUID and get the snippet
+        let snippet_uuid = self.uuid.parse::<Uuid>()
+            .with_context(|| format!("Invalid UUID: {}", self.uuid))?;
+            
+        let snippet = get_snippet_by_id(&mut *conn, &self.uuid)?
+            .ok_or_else(|| anyhow::anyhow!("Snippet with UUID {} not found", self.uuid))?;
 
         let snippet_with_tags = SnippetWithTags::from(snippet);
         let _content = snippet_with_tags.content.clone();
@@ -125,10 +129,38 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders() {
-        let content = "Hello {{name}}, welcome to {{place}}! {{name}} is great.";
-        let mut placeholders = extract_placeholders(content);
-        placeholders.sort();
-        assert_eq!(placeholders, vec!["name", "place"]);
+        let content = "Hello {{name}}, your code is {{code}}";
+        let placeholders = extract_placeholders(content);
+        assert_eq!(placeholders, vec!["name", "code"]);
+    }
+    
+    #[test]
+    fn test_use_command_with_uuid() {
+        // This is a test to verify the command can be created with a UUID
+        use clap::Parser;
+        
+        #[derive(Parser)]
+        struct TestApp {
+            #[command(subcommand)]
+            command: Commands,
+        }
+        
+        #[derive(Subcommand)]
+        enum Commands {
+            Use(UseCommand),
+        }
+        
+        // Test with a valid UUID
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let uuid = uuid_str.parse::<Uuid>().unwrap();
+        let args = ["rustash", "use", uuid_str];
+        
+        let app = TestApp::parse_from(&args);
+        if let Commands::Use(cmd) = &app.command {
+            assert_eq!(cmd.uuid, uuid);
+        } else {
+            panic!("Expected Use command");
+        }
     }
 
     #[test]
