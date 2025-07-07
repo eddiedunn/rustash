@@ -1,27 +1,30 @@
 # Rustash
 
-**A modern, high-performance snippet manager built in Rust.**
+**A modern, high-performance, local-first snippet manager built in Rust.**
 
-Rustash is a command-line tool that helps you manage and use code snippets efficiently. It's designed for developers who want quick access to their frequently used commands, code blocks, or any text snippets.
+Rustash is a command-line tool that helps you add, search, and use code snippets efficiently directly from your terminal. It's designed for developers who want fast, offline access to their most-used commands, code blocks, and notes.
+
+This project is built using an innovative **AI-driven development methodology**. To learn more, see our [AI Contribution Guide](CONTRIBUTING_WITH_AI.md).
 
 ## ✨ Features
 
-- **Lightning Fast**: Built in Rust for maximum performance
-- **Powerful Search**: Find snippets instantly with fuzzy search and tags
-- **Template Variables**: Use `{{variables}}` in your snippets for dynamic content
-- **Clipboard Integration**: Copy snippets to your clipboard with a single command
-- **SQLite Backend**: All your snippets stored in a single, portable file
-- **Tag System**: Organize snippets with multiple tags for easy retrieval
-- **Interactive Mode**: Fill in template variables on the fly
+- **Blazing Fast**: Built in Rust for maximum performance
+- **Powerful Search**: Full-text search with SQLite FTS5 for instant results
+- **Template Variables**: Use `{{placeholders}}` for dynamic content
+- **Clipboard Integration**: Copy snippets with a single command
+- **Local-First**: All data stored in a single SQLite file
+- **Tag System**: Organize snippets with multiple tags
+- **Interactive Mode**: Fill in variables on the fly
+- **Multiple Formats**: View output as table, JSON, or simple lists
 
 ## 🚀 Quick Start
 
 ### Installation
 
+See the [User Guide](USER_GUIDE.md) for detailed installation and setup instructions.
+
+A quick installation from source:
 ```bash
-# Build from source (requires Rust 1.70+)
-git clone https://github.com/yourusername/rustash.git
-cd rustash
 cargo install --path .
 ```
 
@@ -29,17 +32,17 @@ cargo install --path .
 
 ```bash
 # Add a new snippet
-rustash add "Git Commit" "git commit -m '{{message}}'" --tags git,version-control
+rustash add "Git Commit" "git commit -m '{{message}}'" --tags git,template
 
 # List all snippets
 rustash list
 
-# Search snippets
+# Search snippets with a text filter and a tag
 rustash list --filter "commit"
 rustash list --tag git
 
-# Use a snippet (copies to clipboard by default)
-rustash use 1 --var message="Initial commit"
+# Use a snippet with a variable (copies to clipboard)
+rustash use 1 --var message="feat: Add new feature"
 
 # Interactive mode (prompts for variables)
 rustash use 1 --interactive
@@ -47,46 +50,43 @@ rustash use 1 --interactive
 
 ## 📚 Documentation
 
-For detailed documentation, see the [User Guide](USER_GUIDE.md).
+*   **[User Guide](USER_GUIDE.md)**: For users of the Rustash CLI.
+*   **[Architecture Guide](ARCHITECTURE.md)**: For developers contributing to Rustash.
+*   **[AI Contribution Guide](CONTRIBUTING_WITH_AI.md)**: Our guide to AI-driven development.
 
-## 💻 For Developers
+## 💻 Development
 
-This project is built using an innovative **AI-driven development methodology**. To learn how to contribute, please read our guide: [CONTRIBUTING_WITH_AI.md](CONTRIBUTING_WITH_AI.md).
+The project is a Rust workspace managed with Cargo. We use an `xtask` based build system for automation.
 
 ### Project Structure
 
 The project is organized as a Cargo workspace with two main crates:
-- `crates/rustash-core`: Core library with database and business logic
-- `crates/rustash-cli`: Command-line interface
+- `crates/rustash-core`: The core library containing all business logic, database models, and operations.
+- `crates/rustash-cli`: The command-line interface application.
 
 ### Building and Testing
 
 ```bash
-# Build the project
+# Build in release mode
 cargo build --release
 
 # Run tests
-cargo test
+cargo nextest run
 
 # Run linter
-cargo clippy
+cargo clippy -- -Dwarnings
 
 # Run formatter
-cargo fmt
+cargo fmt --check
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see our [contribution guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see our [Contribution Guidelines](CONTRIBUTING.md) for details.
 
 ## 📄 License
 
-This project is licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🔗 Related Projects
 
