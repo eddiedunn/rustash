@@ -4,7 +4,6 @@ use crate::schema::snippets;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use diesel::sql_types::Text;
 
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]

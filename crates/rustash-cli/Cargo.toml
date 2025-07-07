@@ -27,6 +27,9 @@ dialoguer = { workspace = true }
 console = { workspace = true }
 indicatif = { workspace = true }
 
+# Lazy initialization
+lazy_static = { workspace = true }
+
 # Clipboard integration
 arboard = { workspace = true }
 
@@ -46,9 +49,6 @@ chrono = { workspace = true, features = ["serde"] }
 
 # Terminal colors
 termcolor = { workspace = true }
-
-# Lazy initialization
-lazy_static = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

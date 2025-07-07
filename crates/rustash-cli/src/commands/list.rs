@@ -4,7 +4,7 @@ use crate::fuzzy::fuzzy_select_snippet;
 use crate::utils::format_snippet_list;
 use anyhow::Result;
 use clap::Args;
-use rustash_cli::db;
+use crate::db;
 use rustash_core::list_snippets_with_tags;
 
 #[derive(Args)]

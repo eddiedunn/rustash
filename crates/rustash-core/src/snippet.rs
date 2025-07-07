@@ -62,40 +62,37 @@ pub fn list_snippets(
 ) -> Result<Vec<SnippetListItem>> {
     // If there are any filters, build and execute an FTS query.
     if filter_text.is_some() || tag_filter.is_some() {
-        let mut query_parts = Vec::new();
+        // For simplicity, we'll build a single query string with the search terms
+        let mut search_terms = Vec::new();
 
+        // Add text search terms
         if let Some(text) = filter_text.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
-            // Tokenize the search text and join with AND for more intuitive search
-            let fts_terms = text.split_whitespace()
-                .map(|term| term.replace('"', "\"\""))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-            
-            if !fts_terms.is_empty() {
-                query_parts.push(format!("snippets_fts = '{}'", fts_terms));
-            }
+            search_terms.push(text.to_string());
         }
 
+        // Add tag filter
         if let Some(tag) = tag_filter.and_then(|t| if t.trim().is_empty() { None } else { Some(t) }) {
-            let escaped_tag = tag.replace('"', "\"\"");
-            query_parts.push(format!("tags:\"{}\"", escaped_tag));
+            search_terms.push(format!("tags:{}", tag));
         }
 
-        if !query_parts.is_empty() {
-            let fts_query = query_parts.join(" AND ");
+        if !search_terms.is_empty() {
+            // Join all search terms with AND
+            let query_str = search_terms.join(" AND ");
             
-            // Build and execute the FTS query directly, selecting only the fields we need
+            // Build and execute the FTS query
             let query = format!(
-                "SELECT s.id, s.title, s.tags, s.updated_at FROM snippets s 
+                "SELECT s.id, s.title, s.tags, s.updated_at 
+                 FROM snippets s 
                  JOIN snippets_fts ON s.id = snippets_fts.rowid 
-                 WHERE snippets_fts MATCH ? 
+                 WHERE snippets_fts MATCH ?
                  ORDER BY bm25(snippets_fts, 2.0, 1.0, 0.5), s.updated_at DESC {}",
-                limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default()
+                limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default()
             );
             
-            let results: Vec<SnippetListItem> = diesel::sql_query(query)
-                .bind::<diesel::sql_types::Text, _>(&fts_query)
-                .load(conn)
+            // Execute the query with the search terms as a single parameter
+            let results = diesel::sql_query(&query)
+                .bind::<diesel::sql_types::Text, _>(&query_str)
+                .load::<SnippetListItem>(conn)
                 .map_err(|e| Error::other(format!("Failed to execute FTS query: {}", e)))?;
                 
             return Ok(results);
@@ -104,13 +101,20 @@ pub fn list_snippets(
 
     // No filters provided, return all snippets ordered by last updated.
     use crate::schema::snippets::dsl::*;
-    let mut query = snippets.into_boxed().order(updated_at.desc());
-
-    if let Some(limit_val) = limit {
-        query = query.limit(limit_val);
-    }
     
-    let results = query.select(Snippet::as_select()).load(conn)?;
+    // Only select the fields needed for SnippetListItem
+    let results = if let Some(limit_val) = limit {
+        snippets
+            .select((id, title, tags, updated_at))
+            .order(updated_at.desc())
+            .limit(limit_val)
+            .load::<SnippetListItem>(conn)?
+    } else {
+        snippets
+            .select((id, title, tags, updated_at))
+            .order(updated_at.desc())
+            .load::<SnippetListItem>(conn)?
+    };
     
     Ok(results)
 }
@@ -164,12 +168,12 @@ pub fn delete_snippet(conn: &mut DbConnection, snippet_id: i32) -> Result<bool> 
 /// * `limit` - Maximum number of results to return
 /// 
 /// # Returns
-/// A vector of matching snippets, ordered by relevance
+/// A vector of matching snippet list items (without content), ordered by relevance
 pub fn search_snippets(
     conn: &mut DbConnection,
     query_text: &str,
     limit: Option<i64>,
-) -> Result<Vec<Snippet>> {
+) -> Result<Vec<SnippetListItem>> {
     // Delegate to list_snippets with the query as the filter text
     list_snippets(conn, Some(query_text), None, limit)
 }
@@ -187,38 +191,39 @@ pub fn expand_placeholders(content: &str, variables: &HashMap<String, String>) -
 }
 
 /// Get snippets with parsed tags
+/// 
+/// This function first gets a list of snippet list items (without content) and then
+/// fetches the full content for each snippet to include in the result.
 pub fn list_snippets_with_tags(
     conn: &mut DbConnection,
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<SnippetWithTags>> {
+    use crate::schema::snippets::dsl::*;
+    
     // First get the lightweight snippet list
-    let snippets = list_snippets(conn, filter_text, tag_filter, limit)?;
+    let snippet_items = list_snippets(conn, filter_text, tag_filter, limit)?;
     
-    // Only fetch full content for snippets that need it
-    let snippets_with_tags: Result<Vec<SnippetWithTags>> = if snippets.is_empty() {
-        Ok(Vec::new())
-    } else {
-        use crate::schema::snippets::dsl::*;
-        
-        // Get the IDs of the snippets we need to fetch
-        let snippet_ids: Vec<i32> = snippets
-            .iter()
-            .filter_map(|s| s.id)
-            .collect();
-        
-        // Fetch only the full snippets we need in a single query
-        let full_snippets = snippets
-            .filter(id.eq_any(snippet_ids))
-            .select(Snippet::as_select())
-            .load::<Snippet>(conn)?;
-        
-        // Convert to SnippetWithTags
-        Ok(full_snippets.into_iter().map(Into::into).collect())
-    };
+    // If no snippets found, return early
+    if snippet_items.is_empty() {
+        return Ok(Vec::new());
+    }
     
-    snippets_with_tags
+    // Extract the IDs of the snippets we need to fetch full details for
+    let snippet_ids: Vec<i32> = snippet_items
+        .into_iter()
+        .filter_map(|item| item.id)
+        .collect();
+    
+    // Fetch the full snippets in a single query
+    let full_snippets = snippets
+        .filter(id.eq_any(snippet_ids))
+        .select(Snippet::as_select())
+        .load::<Snippet>(conn)?;
+    
+    // Convert to SnippetWithTags and return
+    Ok(full_snippets.into_iter().map(Into::into).collect())
 }
 
 /// Validate snippet content
@@ -245,7 +250,7 @@ fn validate_snippet_content(title: &str, content: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::establish_test_connection;
+    use crate::database::create_test_pool;
     use std::collections::HashMap;
     
     #[test]
@@ -287,7 +292,8 @@ mod tests {
     
     #[test]
     fn test_add_and_get_snippet() -> Result<()> {
-        let mut conn = establish_test_connection()?;
+        let pool = create_test_pool()?;
+        let mut conn = pool.get()?;
         
         let new_snippet = NewSnippet::new(
             "Test Snippet".to_string(),
@@ -309,7 +315,8 @@ mod tests {
     
     #[test]
     fn test_list_and_filter_snippets() -> Result<()> {
-        let mut conn = establish_test_connection()?;
+        let pool = create_test_pool()?;
+        let mut conn = pool.get()?;
         
         // Add test snippets
         let snippet1 = NewSnippet::new(
@@ -372,7 +379,8 @@ mod tests {
         use crate::models::NewSnippet;
         use crate::schema::snippets::dsl as snippets_dsl;
         
-        let mut conn = establish_test_connection()?;
+        let pool = create_test_pool()?;
+        let mut conn = pool.get()?;
         
         // Debug: Check if FTS5 is available
         #[derive(QueryableByName)]

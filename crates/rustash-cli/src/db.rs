@@ -1,10 +1,10 @@
 //! Database connection management for the CLI
 
-use rustash_core::{create_connection_pool, DbPool, DbConnectionGuard};
+use rustash_core::database::{create_connection_pool, DbPool, DbConnectionGuard};
 use std::sync::Arc;
 
 lazy_static::lazy_static! {
-    static ref DB_POOL: std::sync::Mutex<Option<Arc<DbPool>>>> = std::sync::Mutex::new(None);
+    static ref DB_POOL: std::sync::Mutex<Option<Arc<DbPool>>> = std::sync::Mutex::new(None);
 }
 
 /// Initialize the database connection pool
@@ -16,9 +16,9 @@ pub fn init() -> anyhow::Result<()> {
 
 /// Get a database connection from the pool
 pub fn get_connection() -> anyhow::Result<DbConnectionGuard> {
-    let pool = DB_POOL
-        .lock()
-        .unwrap()
+    // Store the guard in a variable to extend its lifetime
+    let pool_guard = DB_POOL.lock().unwrap();
+    let pool = pool_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Database pool not initialized"))?;
     

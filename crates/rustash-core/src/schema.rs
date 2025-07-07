@@ -1,6 +1,5 @@
 // @generated automatically by Diesel CLI.
 
-// Main snippets table
 diesel::table! {
     snippets (id) {
         id -> Nullable<Integer>,
@@ -13,56 +12,56 @@ diesel::table! {
     }
 }
 
-// FTS5 virtual table for full-text search
 diesel::table! {
     snippets_fts (rowid) {
         rowid -> Integer,
-        title -> Text,
-        content -> Text,
-        tags -> Text,
+        title -> Nullable<Binary>,
+        content -> Nullable<Binary>,
+        tags -> Nullable<Binary>,
+        #[sql_name = "snippets_fts"]
+        snippets_fts_content -> Nullable<Binary>,
+        rank -> Nullable<Binary>,
     }
 }
 
-// FTS5 auxiliary tables (required by SQLite FTS5)
 diesel::table! {
     snippets_fts_config (k) {
-        k -> Text,
-        v -> Nullable<Text>,
+        k -> Binary,
+        v -> Nullable<Binary>,
     }
 }
 
 diesel::table! {
     snippets_fts_content (id) {
-        id -> Integer,
-        c0 -> Nullable<Text>,
-        c1 -> Nullable<Text>,
-        c2 -> Nullable<Text>,
+        id -> Nullable<Integer>,
+        c0 -> Nullable<Binary>,
+        c1 -> Nullable<Binary>,
+        c2 -> Nullable<Binary>,
     }
 }
 
 diesel::table! {
     snippets_fts_data (id) {
-        id -> Integer,
+        id -> Nullable<Integer>,
         block -> Nullable<Binary>,
     }
 }
 
 diesel::table! {
     snippets_fts_docsize (id) {
-        id -> Integer,
+        id -> Nullable<Integer>,
         sz -> Nullable<Binary>,
     }
 }
 
 diesel::table! {
     snippets_fts_idx (segid, term) {
-        segid -> Integer,
-        term -> Text,
-        pgno -> Nullable<Integer>,
+        segid -> Binary,
+        term -> Binary,
+        pgno -> Nullable<Binary>,
     }
 }
 
-// Allow all tables to be used in the same query
 diesel::allow_tables_to_appear_in_same_query!(
     snippets,
     snippets_fts,

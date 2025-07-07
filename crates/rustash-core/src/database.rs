@@ -206,10 +206,19 @@ pub fn create_connection_pool() -> Result<DbPool> {
 }
 
 /// Establish a single database connection (for backward compatibility)
+/// Note: This creates a new connection pool each time, which is not efficient.
+/// Prefer using DbPool and getting connections from it instead.
 pub fn establish_connection() -> Result<DbConnection> {
-    let pool = create_connection_pool()?;
-    let conn = pool.get()?;
-    Ok(conn.into_inner())
+    let _pool = create_connection_pool()?;
+    // The connection is not used directly, we create a new one below
+    let _conn = _pool.get()?;
+    // Return a new connection instead of trying to extract from the pooled connection
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| default_db_path().unwrap().to_string_lossy().into_owned());
+    #[cfg(feature = "sqlite")]
+    return Ok(SqliteConnection::establish(&database_url)?);
+    
+    #[cfg(feature = "postgres")]
+    return Ok(PgConnection::establish(&database_url)?);
 }
 
 /// Create a test database connection pool (in-memory SQLite)
@@ -237,21 +246,34 @@ pub fn create_test_pool() -> Result<DbPool> {
             .execute(&mut *conn)
             .map_err(|e| Error::other(format!("Failed to enable WAL mode: {}", e)))?;
         
-        // Run migrations
+        // Run migrations using Diesel's embedded migrations
         #[cfg(feature = "sqlite")]
-        crate::migrations::run_migrations(&mut *conn).map_err(|e| {
-            Error::other(format!("Failed to run migrations on test database: {}", e))
-        })?;
+        {
+            use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+            
+            // This will include the migrations at compile time
+            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+            
+            // Run the migrations
+            conn.run_pending_migrations(MIGRATIONS).map_err(|e| {
+                Error::other(format!("Failed to run migrations on test database: {}", e))
+            })?;
+        }
     }
     
     Ok(pool)
 }
 
 /// Establish a test database connection (for backward compatibility)
+/// Note: This creates a new test pool each time, which is not efficient.
+/// Prefer using create_test_pool and getting connections from it instead.
 pub fn establish_test_connection() -> Result<DbConnection> {
-    let pool = create_test_pool()?;
-    let conn = pool.get()?;
-    Ok(conn.into_inner())
+    // For test connections, we'll just create a new in-memory SQLite connection
+    #[cfg(feature = "sqlite")]
+    return Ok(SqliteConnection::establish("file::memory:?cache=shared")?);
+    
+    #[cfg(feature = "postgres")]
+    return Ok(PgConnection::establish("postgres://localhost/test")?);
 }
 
 #[cfg(test)]
@@ -262,13 +284,17 @@ mod tests {
     fn test_connection_pool() -> Result<()> {
         let pool = create_test_pool()?;
         
-        // Test getting a connection from the pool
-        let conn = pool.get()?;
-        assert!(conn.test_connection().is_ok());
+        // Test getting a connection from the pool and executing a simple query
+        let mut conn = pool.get()?;
+        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
+            .get_result(&mut *conn)?;
+        assert_eq!(result, 1);
         
         // Test multiple connections
-        let conn2 = pool.get()?;
-        assert!(conn2.test_connection().is_ok());
+        let mut conn2 = pool.get()?;
+        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
+            .get_result(&mut *conn2)?;
+        assert_eq!(result, 1);
         
         Ok(())
     }
@@ -278,12 +304,16 @@ mod tests {
         let pool = create_test_pool()?;
         let mut guard = DbConnectionGuard::new(&pool)?;
         
-        // Test deref and deref_mut
-        assert!(guard.test_connection().is_ok());
+        // Test deref and deref_mut by executing a simple query
+        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
+            .get_result(&mut *guard)?;
+        assert_eq!(result, 1);
         
         // Test into_inner
-        let conn = guard.into_inner();
-        assert!(conn.test_connection().is_ok());
+        let mut conn = guard.into_inner();
+        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
+            .get_result(&mut *conn)?;
+        assert_eq!(result, 1);
         
         Ok(())
     }

@@ -4,7 +4,7 @@ use crate::utils::copy_to_clipboard;
 use anyhow::Result;
 use clap::Args;
 use dialoguer::Input;
-use rustash_cli::db;
+use crate::db;
 use rustash_core::{SnippetWithTags, expand_placeholders, get_snippet_by_id};
 use std::collections::HashMap;
 
@@ -41,7 +41,7 @@ impl UseCommand {
             .ok_or_else(|| anyhow::anyhow!("Snippet with ID {} not found", self.id))?;
 
         let snippet_with_tags = SnippetWithTags::from(snippet);
-        let content = snippet_with_tags.content.clone();
+        let _content = snippet_with_tags.content.clone();
 
         // Build variables map
         let mut variables: HashMap<String, String> = self.var.into_iter().collect();

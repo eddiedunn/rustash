@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Args;
-use rustash_cli::db;
+use crate::db;
 use rustash_core::{add_snippet, models::NewSnippet};
 
 #[derive(Args)]
@@ -49,11 +49,11 @@ impl AddCommand {
         // Create new snippet
         let new_snippet = NewSnippet::new(self.title.clone(), content, self.tags.clone());
 
-        // Add to database
-        add_snippet(&mut *conn, new_snippet)?;
+        // Add to database and get the created snippet
+        let snippet = add_snippet(&mut *conn, new_snippet)?;
 
         // Print success message
-        if let Some(id) = new_snippet.id {
+        if let Some(id) = snippet.id {
             println!("✓ Added snippet '{}' with ID: {}", self.title, id);
 
             if !self.tags.is_empty() {
