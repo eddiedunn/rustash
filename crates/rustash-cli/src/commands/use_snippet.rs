@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Args;
 use dialoguer::Input;
 use crate::db;
+use regex::Regex;
 use rustash_core::{SnippetWithTags, expand_placeholders, get_snippet_by_id};
 use std::collections::HashMap;
 
@@ -104,34 +105,17 @@ fn parse_variable(s: &str) -> Result<(String, String), String> {
 }
 
 fn extract_placeholders(content: &str) -> Vec<String> {
-    let mut placeholders = Vec::new();
-    let mut chars = content.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '{' && chars.peek() == Some(&'{') {
-            chars.next(); // consume second '{'
-
-            let mut placeholder = String::new();
-            let mut found_closing = false;
-
-            while let Some(ch) = chars.next() {
-                if ch == '}' && chars.peek() == Some(&'}') {
-                    chars.next(); // consume second '}'
-                    found_closing = true;
-                    break;
-                }
-                placeholder.push(ch);
-            }
-
-            if found_closing && !placeholder.trim().is_empty() {
-                let clean_placeholder = placeholder.trim().to_string();
-                if !placeholders.contains(&clean_placeholder) {
-                    placeholders.push(clean_placeholder);
-                }
-            }
-        }
-    }
-
+    // Use a regex to find all occurrences of {{variable_name}}
+    let re = Regex::new(r"\{\{\s*(\w+)\s*\}\}").unwrap();
+    
+    // Collect all captured variable names
+    let mut placeholders = re.captures_iter(content)
+        .map(|cap| cap[1].to_string())
+        .collect::<Vec<_>>();
+    
+    // Deduplicate and sort for consistent order
+    placeholders.sort();
+    placeholders.dedup();
     placeholders
 }
 
@@ -142,15 +126,17 @@ mod tests {
     #[test]
     fn test_extract_placeholders() {
         let content = "Hello {{name}}, welcome to {{place}}! {{name}} is great.";
-        let placeholders = extract_placeholders(content);
+        let mut placeholders = extract_placeholders(content);
+        placeholders.sort();
         assert_eq!(placeholders, vec!["name", "place"]);
     }
 
     #[test]
     fn test_extract_placeholders_with_spaces() {
         let content = "{{ username }} and {{ project_name }}";
-        let placeholders = extract_placeholders(content);
-        assert_eq!(placeholders, vec!["username", "project_name"]);
+        let mut placeholders = extract_placeholders(content);
+        placeholders.sort();
+        assert_eq!(placeholders, vec!["project_name", "username"]);
     }
 
     #[test]

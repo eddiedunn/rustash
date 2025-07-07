@@ -1,194 +1,93 @@
-# Rustash 1.0
+# Rustash
 
-A modern Rust-based snippet manager with CLI interface, powered by Diesel ORM and SQLite.
+**A modern, high-performance snippet manager built in Rust.**
 
-## Features
+Rustash is a command-line tool that helps you manage and use code snippets efficiently. It's designed for developers who want quick access to their frequently used commands, code blocks, or any text snippets.
 
-- **Fast snippet management**: Add, list, search, and use code snippets
-- **Variable expansion**: Use placeholders like `{{name}}` in snippets
-- **Tag-based organization**: Organize snippets with multiple tags
-- **Multiple output formats**: Table, compact, detailed, and JSON
-- **Fuzzy searching**: Filter snippets by title, content, or tags
-- **Clipboard integration**: Automatically copy expanded snippets to clipboard
-- **SQLite backend**: Lightweight, single-file database (PostgreSQL support planned)
+## ✨ Features
 
-## Quick Start
+- **Lightning Fast**: Built in Rust for maximum performance
+- **Powerful Search**: Find snippets instantly with fuzzy search and tags
+- **Template Variables**: Use `{{variables}}` in your snippets for dynamic content
+- **Clipboard Integration**: Copy snippets to your clipboard with a single command
+- **SQLite Backend**: All your snippets stored in a single, portable file
+- **Tag System**: Organize snippets with multiple tags for easy retrieval
+- **Interactive Mode**: Fill in template variables on the fly
+
+## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Build from source
-cargo build --release --features sqlite
-
-# The binary will be at target/release/rustash
+# Build from source (requires Rust 1.70+)
+git clone https://github.com/yourusername/rustash.git
+cd rustash
+cargo install --path .
 ```
 
 ### Basic Usage
 
 ```bash
-# Set database location (optional, defaults to rustash.db)
-export DATABASE_URL=path/to/your/snippets.db
-
-# Add a snippet
-rustash add "Hello World" "echo 'Hello {{name}}!'" --tags greeting,demo
+# Add a new snippet
+rustash add "Git Commit" "git commit -m '{{message}}'" --tags git,version-control
 
 # List all snippets
 rustash list
 
-# Filter snippets
-rustash list --filter rust
+# Search snippets
+rustash list --filter "commit"
 rustash list --tag git
 
-# Use a snippet with variable substitution
-rustash use 1 --var name=Alice
+# Use a snippet (copies to clipboard by default)
+rustash use 1 --var message="Initial commit"
 
-# Interactive mode with variable prompting
+# Interactive mode (prompts for variables)
 rustash use 1 --interactive
-
-# Different output formats
-rustash list --format detailed
-rustash list --format json
 ```
 
-## Commands
+## 📚 Documentation
 
-### `rustash add`
-Add a new snippet to the database.
+For detailed documentation, see the [User Guide](USER_GUIDE.md).
+
+## 💻 For Developers
+
+This project is built using an innovative **AI-driven development methodology**. To learn how to contribute, please read our guide: [CONTRIBUTING_WITH_AI.md](CONTRIBUTING_WITH_AI.md).
+
+### Project Structure
+
+The project is organized as a Cargo workspace with two main crates:
+- `crates/rustash-core`: Core library with database and business logic
+- `crates/rustash-cli`: Command-line interface
+
+### Building and Testing
 
 ```bash
-rustash add "Snippet Title" "snippet content" --tags tag1,tag2
-
-# Read content from stdin
-echo "some content" | rustash add "Title" --stdin --tags tag1
-```
-
-### `rustash list`
-List and search snippets.
-
-```bash
-# List all snippets (table format)
-rustash list
-
-# Filter by text in title or content
-rustash list --filter "rust function"
-
-# Filter by tag
-rustash list --tag rust
-
-# Use full-text search
-rustash list --search --filter "search term"
-
-# Limit results
-rustash list --limit 10
-
-# Different formats
-rustash list --format compact     # ID: Title [tags]
-rustash list --format detailed    # Full snippet information
-rustash list --format json        # JSON output
-rustash list --format ids         # Just IDs
-```
-
-### `rustash use`
-Use a snippet with variable expansion and clipboard copy.
-
-```bash
-# Use snippet by ID with variables
-rustash use 1 --var name=Alice --var project=rustash
-
-# Interactive variable prompting
-rustash use 1 --interactive
-
-# Just print without copying to clipboard
-rustash use 1 --print-only
-```
-
-## Database Features
-
-- **SQLite backend**: Fast, embedded database with no server required
-- **Diesel ORM**: Type-safe database queries and migrations
-- **Full-text search**: Fast text search across titles and content
-- **Automatic timestamps**: Created and updated timestamps for all snippets
-
-## Variable Expansion
-
-Snippets can contain variables in the format `{{variable_name}}`. When using a snippet:
-
-```bash
-# Snippet content: "git commit -m '{{message}}' && git push"
-rustash use 3 --var message="feat: add new feature"
-# Result: "git commit -m 'feat: add new feature' && git push"
-```
-
-## Project Structure
-
-```
-rustash/
-├── crates/
-│   ├── rustash-core/          # Core library with database logic
-│   │   ├── src/
-│   │   │   ├── models.rs      # Diesel ORM models
-│   │   │   ├── schema.rs      # Generated database schema
-│   │   │   ├── snippet.rs     # CRUD operations
-│   │   │   └── database.rs    # Connection management
-│   │   └── migrations/        # Database migrations
-│   └── rustash-cli/           # CLI application
-│       └── src/
-│           ├── commands/      # CLI command implementations
-│           ├── fuzzy.rs       # Fuzzy finder integration
-│           └── utils.rs       # Utility functions
-├── Cargo.toml                 # Workspace configuration
-└── README.md                  # This file
-```
-
-## Development
-
-### Prerequisites
-
-- Rust 1.70+ (2024 edition)
-- Diesel CLI: `cargo install diesel_cli --no-default-features --features sqlite`
-
-### Building
-
-```bash
-# Check code
-cargo check --features sqlite
+# Build the project
+cargo build --release
 
 # Run tests
-cargo test --features sqlite
+cargo test
 
-# Build release
-cargo build --release --features sqlite
+# Run linter
+cargo clippy
 
-# Run linting
-cargo clippy --features sqlite
+# Run formatter
+cargo fmt
 ```
 
-### Database Setup
+## 🤝 Contributing
 
-The database is created automatically when first run. For development:
+Contributions are welcome! Please see our [contribution guidelines](CONTRIBUTING.md) for details.
 
-```bash
-# Run migrations manually
-diesel setup
-diesel migration run
-```
+## 📄 License
 
-## Validation Checklist
+This project is licensed under either of:
 
-- [x] All tests pass: `cargo test --features sqlite`
-- [x] No linting errors: `cargo clippy --features sqlite`
-- [x] SQLite feature compiles: `cargo build --features sqlite`
-- [x] CLI commands work: `rustash add/list/use` complete successfully
-- [x] Database migrations: `diesel migration run` succeeds
-- [x] Variable expansion: `rustash use <id> --var key=value` works
-- [x] Filtering works: `rustash list --filter text` and `--tag tag` work
-- [x] Multiple output formats work
-- [x] Clipboard integration functional
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
 
-## Inspiration
+at your option.
 
-This project was inspired by [PromptManager](https://github.com/siekman-io/PromptManager), reimagined in Rust with modern tooling and type safety.
+## 🔗 Related Projects
 
-## License
-
-MIT OR Apache-2.0
+- [PromptManager](https://github.com/siekman-io/PromptManager) - Original inspiration for this project

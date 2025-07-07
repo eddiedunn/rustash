@@ -2,28 +2,260 @@
 
 Welcome to Rustash! This guide provides everything you need to know to install, configure, and master the Rustash snippet manager.
 
-## 1. Security Notice
+## Table of Contents
 
-Rustash is designed with security in mind, but there are important security considerations you should be aware of:
+1. [Installation](#1-installation)
+2. [Getting Started](#2-getting-started)
+3. [Basic Commands](#3-basic-commands)
+4. [Advanced Features](#4-advanced-features)
+5. [Security Best Practices](#5-security-best-practices)
+6. [Troubleshooting](#6-troubleshooting)
+7. [FAQ](#7-faq)
 
-### Important Security Notes
+## 1. Installation
 
-1. **Snippet Execution**
-   - Rustash **does not** execute snippets automatically, but be cautious when copying and pasting commands from untrusted sources.
-   - Always review snippets before executing them, especially those from untrusted sources.
+### Prerequisites
 
-2. **Database Security**
-   - By default, Rustash stores snippets in a SQLite database file (`rustash.db`) in your current directory.
-   - You can customize the database location using the `DATABASE_URL` environment variable.
-   - **Warning**: Be careful when setting `DATABASE_URL` to avoid accidentally overwriting important files.
+- Rust toolchain (version 1.70+ recommended)
+- Cargo (Rust's package manager)
+- SQLite (for the database backend)
 
-3. **Sensitive Information**
-   - Avoid storing sensitive information like passwords or API keys directly in snippets.
-   - Consider using environment variables or a secure credential manager for sensitive data.
+### Installation Methods
 
-For a complete security analysis, see [SECURITY.md](./SECURITY.md).
+#### From Source (Recommended)
 
-## 7. Improved Search and Filtering
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/rustash.git
+cd rustash
+
+# Build and install
+cargo install --path .
+```
+
+#### Using Cargo
+
+```bash
+cargo install rustash
+```
+
+### Database Setup
+
+Rustash uses SQLite as its default database backend. The database is automatically created the first time you run the application.
+
+By default, the database is stored in:
+- Linux/macOS: `~/.config/rustash/rustash.db`
+- Windows: `%APPDATA%\rustash\rustash.db`
+
+You can customize the database location by setting the `DATABASE_URL` environment variable:
+
+```bash
+# Example: Custom database location
+export DATABASE_URL=~/.local/share/rustash/snippets.db
+```
+
+## 2. Getting Started
+
+### Your First Snippet
+
+Let's add your first snippet:
+
+```bash
+# Add a simple snippet
+rustash add "Hello World" "echo 'Hello, {{name}}!'" --tags example,greeting
+
+# List your snippets
+rustash list
+
+# Use the snippet
+rustash use 1 --var name=Alice
+```
+
+### Understanding Placeholders
+
+Rustash supports dynamic placeholders in your snippets using the `{{variable}}` syntax:
+
+```bash
+# Add a snippet with placeholders
+rustash add "SSH Command" "ssh {{user}}@{{host}} -p {{port:=22}}" --tags ssh,network
+
+# Use with variables
+rustash use 2 --var user=admin --var host=example.com
+
+# Interactive mode (prompts for missing variables)
+rustash use 2 --interactive
+```
+
+## 3. Basic Commands
+
+### Adding Snippets
+
+```bash
+# Basic usage
+rustash add "Title" "Content" --tags tag1,tag2
+
+# Read content from a file
+rustash add "Config" -f config.yml --tags config
+
+# Read from stdin
+echo "Content from pipe" | rustash add "From Stdin" --stdin
+```
+
+### Listing Snippets
+
+```bash
+# List all snippets
+rustash list
+
+# Filter by text
+rustash list --filter "search term"
+
+# Filter by tag
+rustash list --tag git
+
+# Different output formats
+rustash list --format compact
+rustash list --format detailed
+rustash list --format json
+```
+
+### Using Snippets
+
+```bash
+# Basic usage
+rustash use 1
+
+# With variables
+rustash use 1 --var key=value
+
+# Interactive mode
+rustash use 1 --interactive
+
+# Print to stdout instead of clipboard
+rustash use 1 --print-only
+```
+
+## 4. Advanced Features
+
+### Search and Filtering
+
+Rustash provides powerful search capabilities using SQLite's FTS5 full-text search engine:
+
+```bash
+# Basic search
+rustash list --filter "database"
+
+# Search with operators
+rustash list --filter "postgres OR mysql"
+rustash list --filter "database AND NOT test"
+
+# Phrase search
+rustash list --filter '\"database migration\"'
+
+# Prefix matching
+rustash list --filter "data*"
+```
+
+### Tag Management
+
+```bash
+# Add a snippet with multiple tags
+rustash add "Example" "Content" --tags rust,example,docs
+
+# List all tags
+rustash list --tags
+
+# Filter by multiple tags
+rustash list --tag rust --tag example
+```
+
+## 5. Security Best Practices
+
+### Snippet Security
+
+- **Review Before Execution**: Rustash does not execute snippets automatically. Always review commands before running them.
+- **Sensitive Information**: Avoid storing passwords, API keys, or other sensitive data directly in snippets.
+- **Environment Variables**: Use environment variables for sensitive information:
+  ```bash
+  # Instead of:
+  rustash add "DB Connect" "psql -U myuser -p mypassword"
+  
+  # Use:
+  rustash add "DB Connect" "psql -U $DB_USER -p $DB_PASSWORD"
+  ```
+
+### Database Security
+
+- **File Permissions**: The database file contains all your snippets. Set appropriate file permissions:
+  ```bash
+  chmod 600 ~/.config/rustash/rustash.db
+  ```
+- **Backup**: Regularly back up your database file.
+- **Encryption**: Consider using filesystem-level encryption for the directory containing your database.
+
+### Environment Variables
+
+- **DATABASE_URL**: Be cautious when setting a custom database path. Avoid paths to important system files.
+- **Recommendation**: Use the default location (`~/.config/rustash/rustash.db`) unless you have a specific reason to change it.
+
+## 6. Troubleshooting
+
+### Common Issues
+
+#### Database Connection Errors
+```
+Error: Failed to connect to database: DatabaseError(..., "unable to open database file")
+```
+- **Solution**: Ensure the directory exists and is writable:
+  ```bash
+  mkdir -p ~/.config/rustash
+  chmod 700 ~/.config/rustash
+  ```
+
+#### Migration Errors
+```
+Error: DatabaseError(..., "no such table: __diesel_schema_migrations")
+```
+- **Solution**: Run database migrations:
+  ```bash
+  diesel setup
+  diesel migration run
+  ```
+
+## 7. FAQ
+
+### Is Rustash secure?
+
+Yes, Rustash is designed with security in mind:
+- Written in Rust, which provides memory safety by default
+- Uses the Diesel ORM to prevent SQL injection
+- Does not execute commands automatically
+- Implements secure defaults for file permissions
+
+### Where is my data stored?
+
+By default, Rustash stores data in:
+- Linux/macOS: `~/.config/rustash/rustash.db`
+- Windows: `%APPDATA%\rustash\rustash.db`
+
+### How do I back up my snippets?
+
+Simply copy the database file:
+```bash
+cp ~/.config/rustash/rustash.db ~/backups/rustash-backup-$(date +%Y%m%d).db
+```
+
+### Can I use Rustash in scripts?
+
+Yes! Use the `--print-only` flag to output to stdout:
+```bash
+# In a shell script
+PASSWORD=$(rustash use "DB Password" --print-only)
+```
+
+### How do I report a security issue?
+
+Please report security issues by opening an issue on our GitHub repository. For sensitive issues, you can contact the maintainers directly.
 
 Rustash now features enhanced search capabilities powered by SQLite's FTS5 full-text search engine. This provides faster and more accurate search results across snippet titles, content, and tags.
 

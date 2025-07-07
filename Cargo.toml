@@ -63,6 +63,9 @@ tauri = { version = "2.0", features = ["shell-open"] }
 proptest = "1.5"
 tempfile = "3.12"
 
+# Regex for pattern matching
+regex = "1.10"
+
 # Utility crates
 rustash-core = { path = "crates/rustash-core" }
 rustash-cli = { path = "crates/rustash-cli" }
