@@ -524,8 +524,90 @@ The project is a Cargo workspace with two main crates:
 *   `crates/rustash-core`: The core library containing all business logic, database models, and operations.
 *   `crates/rustash-cli`: The command-line interface application built with `clap`.
 
+### Testing Infrastructure
+
+Rustash includes a comprehensive testing setup that supports both SQLite and PostgreSQL backends with containerized testing environments.
+
+#### Prerequisites
+
+- Docker and Docker Compose
+- Rust toolchain (1.70+)
+- `cargo-make` (optional, for additional convenience)
+
+#### Running Tests
+
+##### 1. SQLite Tests (No Docker Required)
+
+```bash
+# Run all tests with SQLite backend
+make test-sqlite
+
+# Run a specific test
+cargo test test_name --no-default-features --features "sqlite"
+```
+
+##### 2. PostgreSQL Tests (Requires Docker)
+
+```bash
+# Start the test database container
+make postgres-up
+
+# Run tests with PostgreSQL backend
+make test-postgres
+
+# Stop the test database container when done
+make postgres-down
+```
+
+##### 3. Run All Tests
+
+```bash
+# Run both SQLite and PostgreSQL tests
+make test-all
+```
+
+##### 4. Containerized Testing
+
+For consistent testing across environments, you can run all tests in a container:
+
+```bash
+# Build the test container and run all tests
+make test-container
+
+# Or use the test script directly
+./scripts/run-tests.sh
+```
+
+#### Test Organization
+
+- Unit tests are co-located with the code they test (in `mod tests` blocks)
+- Integration tests are in the `tests/` directory
+- Database tests are marked with `#[ignore]` by default and require a database to be running
+
+#### Test Database
+
+The test database is automatically managed by the test infrastructure:
+- Database: `rustash_test`
+- User: `postgres`
+- Password: `postgres`
+- Port: `5433` (to avoid conflicts with a local PostgreSQL instance)
+
+#### Writing Tests
+
+When writing tests that require a database connection, use the test utilities in `tests/test_utils.rs`:
+
+```rust
+#[tokio::test]
+async fn test_example() {
+    let db = test_utils::create_test_pool().await;
+    // Your test code here
+}
+```
+
 ### Database Migrations
+
 Database schema changes are managed by `diesel_migrations`.
+
 ```bash
 # Setup the database (creates the file and runs migrations)
 diesel setup --database-url your_database.db
@@ -535,3 +617,8 @@ diesel migration run --database-url your_database.db
 
 # Create a new migration
 diesel migration generate my_new_migration
+
+# Run migrations for the test database
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/rustash_test \
+  diesel migration run
+```

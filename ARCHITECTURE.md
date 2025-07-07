@@ -4,50 +4,65 @@ Welcome, architect! This document serves as the blueprint for the Rustash projec
 
 ## 1. Project Philosophy & Goals
 
-Rustash is more than a snippet manager; it's a testament to quality software engineering, blending modern Rust practices with an innovative AI-driven development workflow.
+Rustash is a powerful, flexible snippet manager that combines modern Rust practices with an innovative AI-driven development workflow.
 
-*   **Local-First & Performant**: All data is stored locally in a single SQLite file, ensuring that the tool is blazing fast and works entirely offline. Performance is a key feature.
-*   **Ergonomic CLI**: The command-line interface is designed to be intuitive and powerful, integrating seamlessly into a developer's existing workflow with features like fuzzy finding and clipboard integration.
-*   **AI-Driven Development**: The project leverages a sophisticated system of Product Requirement Prompts (PRPs) to guide AI-assisted development, ensuring consistency, quality, and velocity.
-*   **Extensible Core**: The core logic is decoupled from the user interface, allowing for future expansion to different frontends (like the planned Tauri desktop app) or even a server-based backend.
+*   **Multi-Backend Support**: Built with flexibility in mind, supporting both SQLite for local development and PostgreSQL with Apache AGE for scalable, graph-enabled deployments.
+*   **Containerized Development**: Comprehensive Docker and Docker Compose setup for consistent development and testing environments.
+*   **AI-Driven Development**: Leverages a sophisticated system of Product Requirement Prompts (PRPs) to guide AI-assisted development, ensuring consistency, quality, and velocity.
+*   **Extensible Core**: The core logic is decoupled from storage backends and user interfaces, allowing for future expansion to different frontends and storage solutions.
 
 ## 2. High-Level Architecture
 
-Rustash is structured as a Rust workspace, promoting clear separation of concerns between its different components.
+Rustash is structured as a Rust workspace with a clear separation of concerns between components.
 
 ```mermaid
 graph TD
     subgraph User_Interfaces["User Interfaces"]
         CLI["crates/rustash-cli"]
-        Desktop["crates/rustash-desktop Tauri"]
     end
 
     subgraph Core_Logic["Core Logic"]
         Core["crates/rustash-core"]
     end
 
-    subgraph Shared["Shared"]
-        Utils["crates/utils (Proposed)"]
-        Macros["crates/macros"]
+    subgraph Storage_Backends["Storage Backends"]
+        SQLite["SQLite Backend"]
+        Postgres["PostgreSQL + Apache AGE"]
+    end
+
+    subgraph Testing["Testing Infrastructure"]
+        UnitTests["Unit Tests"]
+        Integration["Integration Tests"]
+        Docker["Docker Compose"]
     end
 
     subgraph Build_Tooling["Build & Tooling"]
-        XTask["xtask"]
-        PRPs["PRPs & .claude"]
+        Makefile["Makefile"]
+        Dockerfile["Dockerfile.test"]
     end
 
     CLI --> Core
-    Desktop --> Core
-    Core --> Utils
-    CLI --> Utils
+    Core --> Storage_Backends
+    Testing --> Docker
+    Build_Tooling --> Testing
 
     style Core fill:#c9f,stroke:#333,stroke-width:2px
-    style CLI fill:#9cf,stroke:#333,stroke-width:2px
+    style Storage_Backends fill:#9cf,stroke:#333,stroke-width:2px
+    style Testing fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
-### Crate Responsibilities
+### Component Responsibilities
 
-*   **`rustash-core`**: The heart of the application. It is a library crate containing all business logic, database interactions (via Diesel), and data models. It is completely UI-agnostic.
+*   **`rustash-core`**: The heart of the application containing all business logic, storage abstractions, and data models. It defines the `StorageBackend` trait that all storage implementations must implement.
+*   **`rustash-cli`**: The command-line interface built with `clap` that provides a user-friendly way to interact with the core functionality.
+*   **Storage Backends**:
+    - **SQLite**: Local, file-based storage using SQLite with FTS5 for full-text search.
+    - **PostgreSQL + Apache AGE**: Scalable, graph-enabled storage supporting advanced relationships between snippets.
+*   **Testing Infrastructure**:
+    - Unit tests co-located with code
+    - Integration tests for each backend
+    - Containerized test environments using Docker
+    - Makefile targets for common test scenarios
 *   **`rustash-cli`**: The primary user interface. It's a binary crate that parses command-line arguments (via `clap`), interacts with the user, and calls into `rustash-core` to perform actions.
 *   **`rustash-desktop`**: A planned binary crate for a graphical user interface using Tauri. It will reuse `rustash-core` for all its logic.
 *   **`macros` & `utils`**: Library crates for shared, reusable code like procedural macros or common utility functions (e.g., configuration management).
@@ -76,6 +91,72 @@ This crate is the foundation. Its stability and clarity are paramount.
 *   **`snippet.rs`**: The "service layer" containing all the snippet-related business logic (CRUD, search, placeholder expansion).
 *   **`error.rs`**: A well-defined error enum using `thiserror`, which is a best practice for Rust libraries.
 *   **`schema.rs`**: Auto-generated by Diesel, correctly not under source control.
+
+### Storage Layer
+
+The application supports multiple storage backends through the `StorageBackend` trait, allowing for flexible deployment options:
+
+1. **SQLite Backend**:
+   - Local, file-based storage
+   - Full-text search using SQLite FTS5
+   - Ideal for single-user, local development
+
+2. **PostgreSQL + Apache AGE Backend**:
+   - Scalable, multi-user capable
+   - Graph database capabilities for snippet relationships
+   - Advanced querying with SQL and graph traversals
+   - Supports vector similarity search
+
+### Testing Infrastructure
+
+Rustash features a comprehensive testing strategy with containerized environments:
+
+1. **Unit Tests**:
+   - Test individual functions and methods
+   - No external dependencies
+   - Fast execution
+
+2. **Integration Tests**:
+   - Test backend implementations
+   - Run against real database instances
+   - Isolated test environments
+
+3. **Containerized Testing**:
+   - Docker Compose for managing test databases
+   - Isolated PostgreSQL instances
+   - Consistent test environments
+
+#### Running Tests
+
+```bash
+# Run SQLite tests (no Docker required)
+make test-sqlite
+
+# Run PostgreSQL tests (requires Docker)
+make test-postgres
+
+# Run all tests
+make test-all
+
+# Run tests in a containerized environment
+make test-container
+```
+
+### Development Workflow
+
+1. **Local Development**:
+   - Uses SQLite by default for fast iteration
+   - No external dependencies required
+
+2. **Testing**:
+   - Run unit tests with `cargo test`
+   - Run integration tests with `make test-all`
+   - Use `make test-container` for consistent CI-like testing
+
+3. **CI/CD**:
+   - GitHub Actions for automated testing
+   - Containerized build and test environments
+   - Automated Docker image builds
 
 ### Architectural Refinements
 

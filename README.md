@@ -1,52 +1,83 @@
 # Rustash
 
-**A modern, high-performance, local-first snippet manager built in Rust.**
+**A modern, high-performance, multi-backend snippet manager built in Rust.**
 
-Rustash is a command-line tool that helps you add, search, and use code snippets efficiently directly from your terminal. It's designed for developers who want fast, offline access to their most-used commands, code blocks, and notes.
+Rustash is a command-line tool that helps you manage, search, and use code snippets efficiently. It supports multiple storage backends (SQLite and PostgreSQL with Apache AGE) and is designed for developers who need fast, reliable access to their code snippets and commands.
 
 This project is built using an innovative **AI-driven development methodology**. To learn more, see our [AI Contribution Guide](CONTRIBUTING_WITH_AI.md).
 
 ## ✨ Features
 
+- **Multi-Backend Support**: Choose between SQLite (local) or PostgreSQL with Apache AGE (scalable)
 - **Blazing Fast**: Built in Rust for maximum performance
-- **Powerful Search**: Full-text search with SQLite FTS5 for instant results
+- **Powerful Search**: Full-text search with advanced filtering
 - **Template Variables**: Use `{{placeholders}}` for dynamic content
 - **Clipboard Integration**: Copy snippets with a single command
-- **Local-First**: All data stored in a single SQLite file
 - **Tag System**: Organize snippets with multiple tags
 - **Interactive Mode**: Fill in variables on the fly
 - **Multiple Formats**: View output as table, JSON, or simple lists
+- **Containerized Testing**: Comprehensive test suite with Docker support
+- **Graph Relationships**: Create relationships between snippets with Apache AGE
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+- Rust (1.70+)
+- Docker and Docker Compose (for PostgreSQL/AGE backend and testing)
+- SQLite (for local development)
+
 ### Installation
 
-See the [User Guide](USER_GUIDE.md) for detailed installation and setup instructions.
-
-A quick installation from source:
 ```bash
+# Install from source
 cargo install --path .
+
+# Or install from crates.io (when published)
+# cargo install rustash
 ```
 
 ### Basic Usage
 
 ```bash
-# Add a new snippet
+# Add a new snippet (defaults to SQLite)
 rustash add "Git Commit" "git commit -m '{{message}}'" --tags git,template
 
 # List all snippets
 rustash list
 
 # Search snippets with a text filter and a tag
-rustash list --filter "commit"
-rustash list --tag git
+rustash list --filter "commit" --tag git
 
 # Use a snippet with a variable (copies to clipboard)
 rustash use 1 --var message="feat: Add new feature"
 
 # Interactive mode (prompts for variables)
 rustash use 1 --interactive
+
+# Use PostgreSQL backend
+DATABASE_URL=postgres://user:pass@localhost:5432/rustash rustash list
 ```
+
+## 🧪 Testing
+
+Run tests with the built-in test runner:
+
+```bash
+# Run SQLite tests (no Docker required)
+make test-sqlite
+
+# Run PostgreSQL tests (requires Docker)
+make test-postgres
+
+# Run all tests
+make test-all
+
+# Run tests in a containerized environment
+make test-container
+```
+
+See the [Testing Documentation](USER_GUIDE.md#testing-infrastructure) for more details.
 
 ## 📚 Documentation
 

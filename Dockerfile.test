@@ -1,0 +1,53 @@
+# Use the official Rust image as a base
+FROM rust:1.70-slim as builder
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    sqlite3 \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a new empty shell project
+WORKDIR /usr/src/rustash
+
+# Copy the source code
+COPY . .
+
+# Install cargo-chef for caching dependencies
+RUN cargo install cargo-chef --locked
+
+# Build only the dependencies to cache them
+RUN cd crates/rustash-core && \
+    cargo chef prepare --recipe-path recipe.json
+
+# Build the project with all features
+RUN cd crates/rustash-core && \
+    cargo chef cook --release --recipe-path recipe.json
+
+# Build the actual binary
+RUN cd crates/rustash-core && \
+    cargo build --release --all-features
+
+# Create a minimal runtime image
+FROM debian:bullseye-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from the builder
+COPY --from=builder /usr/src/rustash/target/release/rustash /usr/local/bin/rustash
+
+# Set the working directory
+WORKDIR /app
+
+# Copy test scripts and configuration
+COPY . .
+
+# Set the default command to run tests
+CMD ["cargo", "test", "--no-default-features", "--features", "postgres sqlite", "--", "--nocapture"]

@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # The PostgreSQL + Apache AGE database service
+  # The PostgreSQL + Apache AGE database service for development
   db:
     image: apache/age:v1.4.0-pg15
     container_name: rustash-db-age
@@ -14,6 +14,20 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./init-age.sql:/docker-entrypoint-initdb.d/init-age.sql
+
+  # PostgreSQL database for testing
+  test-db:
+    image: apache/age:v1.4.0-pg15
+    container_name: rustash-test-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=rustash_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - test_pg_data:/var/lib/postgresql/data
       - ./init-age.sql:/docker-entrypoint-initdb.d/init-age.sql
 
   # The Rustash application service
@@ -38,6 +52,22 @@ services:
     # Enable hot-reloading in development
     command: cargo watch -x run
 
+  # Test runner service
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: rustash-test
+    depends_on:
+      - test-db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@test-db:5432/rustash_test
+      - RUST_LOG=debug
+    volumes:
+      - .:/usr/src/rustash
+    working_dir: /usr/src/rustash
+
 volumes:
   pg_data:
+  test_pg_data:
   rustash_data:
