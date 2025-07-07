@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # The PostgreSQL + Apache AGE database service
+  db:
+    image: apache/age:v1.4.0-pg15
+    container_name: rustash-db-age
+    restart: always
+    environment:
+      - POSTGRES_USER=rustash
+      - POSTGRES_PASSWORD=rustash_secret
+      - POSTGRES_DB=rustash
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init-age.sql:/docker-entrypoint-initdb.d/init-age.sql
+
+  # The Rustash application service
+  app:
+    build: .
+    container_name: rustash-app
+    depends_on:
+      - db
+    environment:
+      # Tell Rustash how to connect to the 'db' service
+      - DATABASE_URL=postgres://rustash:rustash_secret@db:5432/rustash
+      # This ensures logs are immediately visible
+      - RUST_LOG=info
+    volumes:
+      # Mount the source code for live development
+      - .:/app
+      # Create a volume for the SQLite database, if used
+      - rustash_data:/app/data
+    # For development, we'll keep the container running
+    tty: true
+    stdin_open: true
+    # Enable hot-reloading in development
+    command: cargo watch -x run
+
+volumes:
+  pg_data:
+  rustash_data:

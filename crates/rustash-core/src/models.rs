@@ -1,16 +1,21 @@
 //! Data models for Rustash
 
+use crate::memory::MemoryItem;
 use crate::schema::snippets;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
 #[diesel(table_name = snippets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct Snippet {
-    pub id: Option<i32>,
+pub struct DbSnippet {
+    pub id: i32,
+    pub uuid: String, // UUID stored as string
     pub title: String,
     pub content: String,
     pub tags: String, // JSON array stored as string
@@ -22,23 +27,12 @@ pub struct Snippet {
 /// A new snippet to be inserted into the database
 #[derive(Insertable, Serialize, Deserialize, Debug, Clone)]
 #[diesel(table_name = snippets)]
-pub struct NewSnippet {
+pub struct NewDbSnippet {
+    pub uuid: String,
     pub title: String,
     pub content: String,
     pub tags: String, // JSON array stored as string
     pub embedding: Option<Vec<u8>>,
-}
-
-/// A snippet with parsed tags for easier handling
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SnippetWithTags {
-    pub id: Option<i32>,
-    pub title: String,
-    pub content: String,
-    pub tags: Vec<String>, // Parsed from JSON
-    pub embedding: Option<Vec<u8>>,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
 }
 
 /// A lightweight representation of a snippet for list views
@@ -46,16 +40,112 @@ pub struct SnippetWithTags {
 #[diesel(table_name = snippets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct SnippetListItem {
-    pub id: Option<i32>,
+    pub id: i32,
+    pub uuid: String,
     pub title: String,
     pub tags: String, // JSON array stored as string
     pub updated_at: NaiveDateTime,
 }
 
-impl From<Snippet> for SnippetListItem {
+/// A snippet with parsed tags for easier handling
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SnippetWithTags {
+    pub id: Uuid,
+    pub title: String,
+    pub content: String,
+    pub tags: Vec<String>, // Parsed from JSON
+    pub embedding: Option<Vec<u8>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// The main Snippet struct that implements MemoryItem
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Snippet {
+    pub id: Uuid,
+    pub title: String,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub embedding: Option<Vec<u8>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl MemoryItem for Snippet {
+    fn id(&self) -> Uuid { self.id }
+    
+    fn item_type(&self) -> &'static str { "snippet" }
+    
+    fn content(&self) -> &str { &self.content }
+    
+    fn metadata(&self) -> HashMap<String, Value> {
+        let mut map = HashMap::new();
+        map.insert("title".to_string(), Value::String(self.title.clone()));
+        map.insert("tags".to_string(), json!(self.tags));
+        if let Some(embedding) = &self.embedding {
+            map.insert("has_embedding".to_string(), Value::Bool(true));
+        }
+        map
+    }
+    
+    fn created_at(&self) -> DateTime<Utc> { self.created_at }
+    
+    fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
+}
+
+// Conversion implementations
+
+impl From<DbSnippet> for Snippet {
+    fn from(db_snippet: DbSnippet) -> Self {
+        let tags: Vec<String> = serde_json::from_str(&db_snippet.tags).unwrap_or_default();
+        
+        Self {
+            id: Uuid::parse_str(&db_snippet.uuid).unwrap_or_else(|_| Uuid::new_v4()),
+            title: db_snippet.title,
+            content: db_snippet.content,
+            tags,
+            embedding: db_snippet.embedding,
+            created_at: DateTime::<Utc>::from_utc(db_snippet.created_at, Utc),
+            updated_at: DateTime::<Utc>::from_utc(db_snippet.updated_at, Utc),
+        }
+    }
+}
+
+impl From<Snippet> for NewDbSnippet {
     fn from(snippet: Snippet) -> Self {
+        let tags_json = serde_json::to_string(&snippet.tags).unwrap_or_else(|_| "[]".to_string());
+        
+        Self {
+            uuid: snippet.id.to_string(),
+            title: snippet.title,
+            content: snippet.content,
+            tags: tags_json,
+            embedding: snippet.embedding,
+        }
+    }
+}
+
+impl From<DbSnippet> for SnippetWithTags {
+    fn from(db_snippet: DbSnippet) -> Self {
+        let tags: Vec<String> = serde_json::from_str(&db_snippet.tags).unwrap_or_default();
+        
+        Self {
+            id: Uuid::parse_str(&db_snippet.uuid).unwrap_or_else(|_| Uuid::new_v4()),
+            title: db_snippet.title,
+            content: db_snippet.content,
+            tags,
+            embedding: db_snippet.embedding,
+            created_at: DateTime::<Utc>::from_utc(db_snippet.created_at, Utc),
+            updated_at: DateTime::<Utc>::from_utc(db_snippet.updated_at, Utc),
+        }
+    }
+}
+
+impl From<DbSnippet> for SnippetListItem {
+    fn from(snippet: DbSnippet) -> Self {
         Self {
             id: snippet.id,
+            uuid: snippet.uuid,
             title: snippet.title,
             tags: snippet.tags,
             updated_at: snippet.updated_at,
@@ -63,28 +153,13 @@ impl From<Snippet> for SnippetListItem {
     }
 }
 
-impl From<Snippet> for SnippetWithTags {
-    fn from(snippet: Snippet) -> Self {
-        let tags: Vec<String> = serde_json::from_str(&snippet.tags).unwrap_or_default();
-        
-        Self {
-            id: snippet.id,
-            title: snippet.title,
-            content: snippet.content,
-            tags,
-            embedding: snippet.embedding,
-            created_at: snippet.created_at,
-            updated_at: snippet.updated_at,
-        }
-    }
-}
-
-impl NewSnippet {
+impl NewDbSnippet {
     /// Create a new snippet with tags
     pub fn new(title: String, content: String, tags: Vec<String>) -> Self {
         let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
         
         Self {
+            uuid: Uuid::new_v4().to_string(),
             title,
             content,
             tags: tags_json,
@@ -97,6 +172,7 @@ impl NewSnippet {
         let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
         
         Self {
+            uuid: Uuid::new_v4().to_string(),
             title,
             content,
             tags: tags_json,

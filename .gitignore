@@ -47,6 +47,13 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+# Docker
+.dockerignore
+docker-compose.override.yml
+pg_data/
+rustash_data/
+.env
+
 # Linux specific
 *~
 
