@@ -4,6 +4,8 @@ mod commands;
 mod db;
 mod fuzzy;
 mod utils;
+#[cfg(feature = "gui")]
+mod gui;
 
 use std::path::PathBuf;
 use anyhow::Result;

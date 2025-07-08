@@ -100,12 +100,25 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize)]
     struct TestMemory {
         id: Uuid,
         content: String,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
+    }
+    
+    // Implement erased_serde::Serialize for TestMemory
+    impl erased_serde::Serialize for TestMemory {
+        fn serialize(&self, serializer: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error> {
+            use serde::ser::SerializeStruct;
+            let mut state = serializer.serialize_struct("TestMemory", 5)?;
+            state.serialize_field("id", &self.id.to_string())?;
+            state.serialize_field("content", &self.content)?;
+            state.serialize_field("created_at", &self.created_at.to_rfc3339())?;
+            state.serialize_field("updated_at", &self.updated_at.to_rfc3339())?;
+            state.end()
+        }
     }
 
     impl MemoryItem for TestMemory {

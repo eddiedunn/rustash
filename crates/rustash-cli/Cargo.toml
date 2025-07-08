@@ -59,12 +59,17 @@ termcolor = { workspace = true }
 # Regular expressions
 regex = { workspace = true }
 
+# GUI dependencies (optional)
+eframe = { version = "0.27", optional = true }
+egui = { version = "0.27", optional = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "gui"]
 sqlite = ["rustash-core/sqlite"]
 postgres = ["rustash-core/postgres"]
+gui = ["dep:eframe", "dep:egui"]
 vector-search = ["rustash-core/vector-search"]

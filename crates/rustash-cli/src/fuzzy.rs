@@ -85,7 +85,6 @@ mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
-    #[test]
     fn create_test_snippet(
         id: &str,
         title: &str,

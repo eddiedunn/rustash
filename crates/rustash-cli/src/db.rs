@@ -68,7 +68,7 @@ pub fn get_connection() -> anyhow::Result<DbConnectionGuard> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustash_core::create_test_pool;
+    use rustash_core::database::create_test_pool;
 
     #[test]
     fn test_connection_pool() -> anyhow::Result<()> {

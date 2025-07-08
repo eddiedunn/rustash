@@ -39,7 +39,7 @@ impl UseCommand {
         let mut conn = db::get_connection()?;
 
         // Parse UUID and get the snippet
-        let snippet_uuid = self.uuid.parse::<Uuid>()
+        let _snippet_uuid = self.uuid.parse::<Uuid>()
             .with_context(|| format!("Invalid UUID: {}", self.uuid))?;
             
         let snippet = get_snippet_by_id(&mut *conn, &self.uuid)?
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn test_use_command_with_uuid() {
         // This is a test to verify the command can be created with a UUID
-        use clap::Parser;
+        use clap::{Parser, Subcommand};
         
         #[derive(Parser)]
         struct TestApp {
@@ -152,12 +152,11 @@ mod tests {
         
         // Test with a valid UUID
         let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
-        let uuid = uuid_str.parse::<Uuid>().unwrap();
         let args = ["rustash", "use", uuid_str];
         
-        let app = TestApp::parse_from(&args);
+        let app = TestApp::parse_from(args.iter());
         if let Commands::Use(cmd) = &app.command {
-            assert_eq!(cmd.uuid, uuid);
+            assert_eq!(cmd.uuid, uuid_str);
         } else {
             panic!("Expected Use command");
         }

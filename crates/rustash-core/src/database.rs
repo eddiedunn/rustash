@@ -61,7 +61,6 @@ impl DbPool {
 /// A wrapper around a pooled connection that implements `Deref` to the inner connection
 pub struct DbConnectionGuard {
     conn: Option<PooledConn>,
-    pool: Arc<ConnectionPool>,
 }
 
 impl Drop for DbConnectionGuard {
@@ -90,13 +89,26 @@ impl DbConnectionGuard {
         let conn = pool.get()?;
         Ok(Self {
             conn: Some(conn),
-            pool: Arc::clone(&pool.0),
         })
     }
     
     /// Explicitly get the inner connection
     pub fn into_inner(mut self) -> PooledConn {
         self.conn.take().expect("Connection already taken")
+    }
+    
+    /// Test if the database connection is still valid
+    pub fn test_connection(&mut self) -> Result<()> {
+        use diesel::connection::SimpleConnection;
+        
+        // Execute a simple query to test the connection
+        self.conn
+            .as_mut()
+            .expect("Connection already taken")
+            .batch_execute("SELECT 1")
+            .map_err(|e| Error::other(format!("Connection test failed: {}", e)))?;
+            
+        Ok(())
     }
 }
 
