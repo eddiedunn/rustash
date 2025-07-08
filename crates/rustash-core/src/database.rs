@@ -265,9 +265,8 @@ pub fn create_test_pool() -> Result<DbPool> {
             use std::path::Path;
             
             // This will include the migrations at compile time
-            // Use the full path to the migrations directory relative to the crate root
-            // This path must match the one used in the test
-            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../rustash-core/migrations");
+            // The path is relative to the crate root (where Cargo.toml is located)
+            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
             
             // Run the migrations
             conn.run_pending_migrations(MIGRATIONS).map_err(|e| {
