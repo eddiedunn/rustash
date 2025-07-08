@@ -319,6 +319,8 @@ pub fn validate_snippet_content(snippet_title: &str, snippet_content: &str) -> R
 mod tests {
     use super::*;
     use crate::database::create_test_pool;
+    use chrono::Utc;
+    use uuid::Uuid;
     use std::collections::HashMap;
     
     #[test]
@@ -370,7 +372,7 @@ mod tests {
         );
         
         // Convert NewDbSnippet to Snippet for the function call
-        let snippet_uuid = Uuid::parse_str(&new_snippet.uuid).unwrap();
+        let _snippet_uuid = Uuid::parse_str(&new_snippet.uuid).unwrap();
         let snippet = Snippet {
             uuid: new_snippet.uuid.clone(),
             title: new_snippet.title.clone(),

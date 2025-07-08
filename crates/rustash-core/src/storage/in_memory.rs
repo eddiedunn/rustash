@@ -92,7 +92,7 @@ mod tests {
     use chrono::Utc;
     use std::collections::HashMap;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize)]
     struct TestMemory {
         id: Uuid,
         content: String,
@@ -110,6 +110,14 @@ mod tests {
         
         fn clone_dyn(&self) -> Box<dyn MemoryItem> {
             Box::new(self.clone())
+        }
+        
+        fn clone_dyn_send_sync(&self) -> Box<dyn MemoryItem + Send + Sync> {
+            Box::new(self.clone())
+        }
+        
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
     

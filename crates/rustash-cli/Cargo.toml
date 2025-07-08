@@ -50,22 +50,25 @@ dirs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
+# Regular expressions
+regex = { workspace = true }
+
+# Optional GUI dependencies
+eframe = { version = "0.27", optional = true }
+egui = { version = "0.27", optional = true }
+
+[dev-dependencies]
+diesel = { workspace = true }
+diesel_migrations = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+proptest = { workspace = true }
+
 # Time handling
 chrono = { workspace = true, features = ["serde"] }
 
 # Terminal colors
 termcolor = { workspace = true }
-
-# Regular expressions
-regex = { workspace = true }
-
-# GUI dependencies (optional)
-eframe = { version = "0.27", optional = true }
-egui = { version = "0.27", optional = true }
-
-[dev-dependencies]
-tempfile = { workspace = true }
-proptest = { workspace = true }
 
 [features]
 default = ["sqlite", "gui"]

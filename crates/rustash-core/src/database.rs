@@ -262,9 +262,12 @@ pub fn create_test_pool() -> Result<DbPool> {
         #[cfg(feature = "sqlite")]
         {
             use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+            use std::path::Path;
             
             // This will include the migrations at compile time
-            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+            // Use the full path to the migrations directory relative to the crate root
+            // This path must match the one used in the test
+            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../rustash-core/migrations");
             
             // Run the migrations
             conn.run_pending_migrations(MIGRATIONS).map_err(|e| {

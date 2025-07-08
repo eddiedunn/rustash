@@ -111,21 +111,35 @@ mod tests {
     use super::*;
     use crate::{
         database::create_test_pool,
-        models::Snippet,
+        models::{Snippet, SnippetWithTags},
     };
-    use chrono::{Utc, NaiveDateTime};
+    use chrono::Utc;
+    use diesel_migrations::{embed_migrations, MigrationHarness};
     use serde_json;
     use uuid::Uuid;
 
+    // This will embed the migrations in the binary
+    pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations = embed_migrations!("migrations");
+
     async fn create_test_backend() -> SqliteBackend {
-        let pool = create_test_pool();
-        let backend = SqliteBackend::new(pool);
+        // Create a test pool
+        let db_pool = create_test_pool().expect("Failed to create test pool");
+        
+        // Get a connection from the pool to run migrations
+        let mut conn = db_pool.get().expect("Failed to get connection from pool");
         
         // Run migrations
-        let mut conn = backend.get_conn().unwrap();
-        diesel_migrations::run_pending_migrations(&mut *conn).unwrap();
+        conn.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
         
-        backend
+        // Extract the inner connection manager from the pool
+        let manager = ConnectionManager::<SqliteConnection>::new(":memory:");
+        let pool = Pool::builder()
+            .max_size(1) // We only need one connection for testing
+            .build(manager)
+            .expect("Failed to create test pool");
+            
+        // Create the backend with the new pool
+        SqliteBackend::new(pool)
     }
 
     #[tokio::test]
@@ -143,19 +157,22 @@ mod tests {
             updated_at: Utc::now().naive_utc(),
         };
         
+        // Convert Snippet to a type that implements MemoryItem
+        let snippet_with_tags = SnippetWithTags::from(snippet.clone());
+        
         // Save the snippet
-        backend.save(&snippet).await.unwrap();
+        backend.save(&snippet_with_tags).await.unwrap();
         
         // Retrieve it
         let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
         let retrieved_snippet = retrieved
             .as_any()
-            .downcast_ref::<Snippet>()
+            .downcast_ref::<SnippetWithTags>()
             .unwrap();
             
         assert_eq!(retrieved_snippet.title, "Test Snippet");
         assert_eq!(retrieved_snippet.content, "Test content");
-        assert_eq!(retrieved_snippet.tags, serde_json::to_string(&vec!["test".to_string()]).unwrap());
+        assert_eq!(retrieved_snippet.tags, vec!["test".to_string()]);
     }
     
     // Removed test_query as it relies on the non-existent query method

@@ -69,16 +69,68 @@ pub fn get_connection() -> anyhow::Result<DbConnectionGuard> {
 mod tests {
     use super::*;
     use rustash_core::database::create_test_pool;
+    use diesel::prelude::*;
+    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use std::error::Error;
+    
+    // Struct to hold the result of the COUNT query
+    #[derive(QueryableByName)]
+    struct TableCount {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        count: i32,
+    }
+    
+    // This will include the migrations at compile time
+    // The migrations are in the rustash-core crate
+    // Use the path relative to the rustash-core crate
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../rustash-core/migrations");
+
+    // Helper function to run migrations on a connection
+    fn run_migrations(conn: &mut impl MigrationHarness<diesel::sqlite::Sqlite>) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        conn.run_pending_migrations(MIGRATIONS)?;
+        Ok(())
+    }
 
     #[test]
     fn test_connection_pool() -> anyhow::Result<()> {
-        // Initialize with test pool
+        // Create a test pool
         let test_pool = Arc::new(create_test_pool()?);
-        *DB_POOL.lock().unwrap() = Some(test_pool);
+        
+        // Store the pool in the global state
+        *DB_POOL.lock().unwrap() = Some(test_pool.clone());
 
         // Get a connection
-        let conn = get_connection()?;
+        let mut conn = get_connection()?;
+        
+        // Ensure the connection is valid
         assert!(conn.test_connection().is_ok());
+        
+        // Check if the snippets table exists
+        let table_exists = diesel::sql_query(
+            "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='snippets'"
+        )
+        .get_result::<TableCount>(&mut *conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+        
+        if table_exists == 0 {
+            // If the table doesn't exist, try to run migrations
+            eprintln!("Snippets table not found. Running migrations...");
+            run_migrations(&mut *conn).map_err(|e| {
+                eprintln!("Failed to run migrations: {}", e);
+                anyhow::anyhow!("Failed to run migrations: {}", e)
+            })?;
+            
+            // Verify the table was created
+            let table_exists_after = diesel::sql_query(
+                "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='snippets'"
+            )
+            .get_result::<TableCount>(&mut *conn)
+            .map(|r| r.count)
+            .unwrap_or(0);
+            
+            assert_ne!(table_exists_after, 0, "Snippets table should exist after running migrations");
+        }
         
         Ok(())
     }

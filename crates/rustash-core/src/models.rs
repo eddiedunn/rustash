@@ -70,6 +70,50 @@ pub struct SnippetWithTags {
     pub updated_at: DateTime<Utc>,
 }
 
+impl MemoryItem for SnippetWithTags {
+    fn id(&self) -> Uuid {
+        self.id
+    }
+    
+    fn item_type(&self) -> &'static str {
+        "snippet"
+    }
+    
+    fn content(&self) -> &str {
+        &self.content
+    }
+    
+    fn metadata(&self) -> HashMap<String, serde_json::Value> {
+        let mut metadata = HashMap::new();
+        metadata.insert("title".to_string(), serde_json::Value::String(self.title.clone()));
+        metadata.insert("tags".to_string(), serde_json::to_value(&self.tags).unwrap_or_default());
+        if let Some(_embedding) = &self.embedding {
+            metadata.insert("has_embedding".to_string(), serde_json::Value::Bool(true));
+        }
+        metadata
+    }
+    
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn clone_dyn(&self) -> Box<dyn MemoryItem> {
+        Box::new(self.clone())
+    }
+    
+    fn clone_dyn_send_sync(&self) -> Box<dyn MemoryItem + Send + Sync> {
+        Box::new(self.clone())
+    }
+}
+
 impl SnippetWithTags {
     /// Create a new SnippetWithTags with the given UUID
     pub fn with_uuid(uuid: Uuid, title: String, content: String, tags: Vec<String>) -> Self {
