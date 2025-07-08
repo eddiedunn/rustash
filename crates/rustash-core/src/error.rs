@@ -4,6 +4,10 @@ use std::fmt;
 use thiserror::Error;
 use uuid::Uuid;
 
+// Don't derive From for tokio_postgres::Error to avoid conflict with manual implementation
+#[cfg(feature = "postgres")]
+use tokio_postgres::error::Error as PgError;
+
 /// Result type alias for Rustash operations
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -33,6 +37,15 @@ pub enum Error {
     /// IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    
+    /// Async runtime errors
+    #[error("Runtime error: {0}")]
+    Runtime(String),
+    
+    /// PostgreSQL errors
+    #[error("PostgreSQL error: {0}")]
+    #[cfg(feature = "postgres")]
+    Postgres(#[source] PgError),
 
     /// UUID parsing errors
     #[error("Invalid UUID: {0}")]
@@ -125,5 +138,22 @@ impl Error {
     /// Check if this is a permission denied error
     pub fn is_permission_denied(&self) -> bool {
         matches!(self, Self::PermissionDenied(_))
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl From<tokio_postgres::Error> for Error {
+    fn from(err: tokio_postgres::Error) -> Self {
+        Error::Postgres(err)
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl From<bb8::RunError<tokio_postgres::Error>> for Error {
+    fn from(err: bb8::RunError<tokio_postgres::Error>) -> Self {
+        match err {
+            bb8::RunError::User(err) => Error::Postgres(err),
+            bb8::RunError::TimedOut => Error::Runtime("Database connection timed out".to_string()),
+        }
     }
 }

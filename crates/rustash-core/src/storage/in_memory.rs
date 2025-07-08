@@ -34,6 +34,19 @@ pub trait StorageBackend: Send + Sync + std::fmt::Debug {
         to: &Uuid,
         relation_type: &str,
     ) -> Result<()>;
+
+    /// Query memory items with the given criteria.
+    async fn query(
+        &self,
+        query: &crate::models::Query,
+    ) -> Result<Vec<Box<dyn MemoryItem + Send + Sync>>>;
+
+    /// Get related memory items for the given ID and optional relation type.
+    async fn get_related(
+        &self,
+        id: &Uuid,
+        relation_type: Option<&str>,
+    ) -> Result<Vec<Box<dyn MemoryItem + Send + Sync>>>;
 }
 
 /// A simple in-memory implementation for testing and development.
@@ -81,8 +94,27 @@ impl StorageBackend for InMemoryBackend {
         _to: &Uuid,
         _relation_type: &str,
     ) -> Result<()> {
-        // In-memory implementation doesn't support relations
+        // No-op for in-memory implementation
         Ok(())
+    }
+
+    async fn query(
+        &self,
+        _query: &crate::models::Query,
+    ) -> Result<Vec<Box<dyn MemoryItem + Send + Sync>>> {
+        // Simple implementation that returns all items
+        let items = self.items.read().unwrap();
+        let results = items.values().map(|item| item.clone_dyn_send_sync()).collect();
+        Ok(results)
+    }
+
+    async fn get_related(
+        &self,
+        _id: &Uuid,
+        _relation_type: Option<&str>,
+    ) -> Result<Vec<Box<dyn MemoryItem + Send + Sync>>> {
+        // Simple implementation that returns an empty vector
+        Ok(Vec::new())
     }
 }
 

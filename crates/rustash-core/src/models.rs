@@ -11,6 +11,44 @@ use std::collections::HashMap;
 use std::fmt;
 use uuid::Uuid;
 
+/// Query parameters for searching snippets
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Query {
+    /// Text to search for in title or content
+    pub text_filter: Option<String>,
+    /// Tags to filter by
+    pub tags: Option<Vec<String>>,
+    /// Maximum number of results to return (0 for no limit)
+    pub limit: usize,
+    /// Content to search for (alternative to text_filter for backward compatibility)
+    pub content: Option<String>,
+}
+
+impl Query {
+    /// Create a new query with the given text filter
+    pub fn with_text(text: &str) -> Self {
+        Self {
+            text_filter: Some(text.to_string()),
+            ..Default::default()
+        }
+    }
+    
+    /// Create a new query with the given tags
+    pub fn with_tags(tags: Vec<String>) -> Self {
+        Self {
+            tags: Some(tags),
+            ..Default::default()
+        }
+    }
+    
+    /// Set the maximum number of results
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = limit;
+        self
+    }
+}
+
+
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
 #[diesel(table_name = crate::schema::snippets)]

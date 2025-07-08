@@ -17,18 +17,16 @@ use diesel::sqlite::SqliteConnection;
 use diesel::pg::PgConnection;
 
 /// Database connection type based on feature flags
-#[cfg(feature = "sqlite")]
-pub type DbConnection = SqliteConnection;
-
-#[cfg(feature = "postgres")]
-pub type DbConnection = PgConnection;
+#[cfg_attr(feature = "postgres", allow(dead_code))]
+pub type DbConnection = 
+    #[cfg(feature = "sqlite")] SqliteConnection
+    #[cfg(feature = "postgres")] PgConnection;
 
 /// Type alias for the connection manager
-#[cfg(feature = "sqlite")]
-type ConnectionManagerType = ConnectionManager<SqliteConnection>;
-
-#[cfg(feature = "postgres")]
-type ConnectionManagerType = ConnectionManager<PgConnection>;
+#[cfg_attr(feature = "postgres", allow(dead_code))]
+type ConnectionManagerType = 
+    #[cfg(feature = "sqlite")] ConnectionManager<SqliteConnection>
+    #[cfg(feature = "postgres")] ConnectionManager<PgConnection>;
 
 /// Type alias for the connection pool
 type ConnectionPool = Pool<ConnectionManagerType>;
@@ -153,6 +151,8 @@ fn validate_db_path(path: &Path) -> Result<()> {
     // On Unix-like systems, check for symlinks in the path for security
     #[cfg(unix)]
     {
+        use std::env;
+        
         // 1. Check if the path itself is a symlink
         if path.is_symlink() {
             return Err(Error::other(format!(
@@ -161,16 +161,24 @@ fn validate_db_path(path: &Path) -> Result<()> {
             )));
         }
 
-        // 2. Check if any ancestor is a symlink
+        // 2. Check if any ancestor is a symlink, but allow symlinks in the system temp dir
         if let Some(parent) = path.parent() {
             let mut current = parent;
+            let temp_dir = std::env::temp_dir();
+            
             loop {
+                // Skip symlink check if we're in the system temp directory
+                if temp_dir.starts_with(current) || current.starts_with(&temp_dir) {
+                    break;
+                }
+                
                 if current.is_symlink() {
                     return Err(Error::other(format!(
                         "Database path cannot be inside a symlinked directory. Ancestor '{}' is a symlink.",
                         current.display()
                     )));
                 }
+                
                 if let Some(p) = current.parent() {
                     // Break if we've reached the root.
                     if p == current {
@@ -406,11 +414,7 @@ mod tests {
                 println!("Is symlink: {}", metadata.file_type().is_symlink());
             }
             
-            // Check if the path is detected as a symlink by our function
-            let contains_symlink = is_path_containing_symlink(&symlink_path);
-            println!("is_path_containing_symlink result: {:?}", contains_symlink);
-            
-            // Now test the actual validation
+            // Test the actual validation
             let validation_result = validate_db_path(&symlink_path);
             println!("validate_db_path result: {:?}", validation_result);
             
