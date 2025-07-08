@@ -53,9 +53,8 @@ serde = { workspace = true, features = ["derive"] }
 log = "0.4"
 
 # Database
-# Note: Must match the versions used in rustash-core
-r2d2 = { workspace = true }
-diesel = { workspace = true, features = ["r2d2", "chrono", "uuid"] }
+# Note: Database dependencies are managed by rustash-core
+diesel = { workspace = true, features = ["chrono", "uuid"] }
 diesel_migrations = { workspace = true }
 serde_json = { workspace = true }
 

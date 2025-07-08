@@ -4,6 +4,9 @@ use std::fmt;
 use thiserror::Error;
 use uuid::Uuid;
 
+#[cfg(feature = "sqlite")]
+use r2d2;
+
 // Don't derive From for tokio_postgres::Error to avoid conflict with manual implementation
 #[cfg(feature = "postgres")]
 use tokio_postgres::error::Error as PgError;
@@ -24,6 +27,8 @@ pub enum Error {
 
     /// Connection pool errors
     #[error("Connection pool error: {0}")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
+    #[cfg(feature = "sqlite")]
     ConnectionPool(#[from] r2d2::Error),
 
     /// Validation errors

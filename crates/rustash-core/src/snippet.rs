@@ -319,9 +319,7 @@ pub fn validate_snippet_content(snippet_title: &str, snippet_content: &str) -> R
 mod tests {
     use super::*;
     use crate::database::create_test_pool;
-    use crate::models::{NewDbSnippet, UpdateSnippet};
     use std::collections::HashMap;
-    use uuid::Uuid;
     
     #[test]
     fn test_expand_placeholders() {
@@ -334,36 +332,43 @@ mod tests {
         assert_eq!(result, "Hello Alice, welcome to Rustland!");
     }
     
-    #[test]
-    fn test_search_snippets_fts5() -> Result<()> {
+    // SQLite-specific tests
+    #[cfg(feature = "sqlite")]
+    mod sqlite_tests {
+        use super::*;
+        use uuid::Uuid;
+        use crate::models::{NewDbSnippet, UpdateSnippet};
         use crate::schema::snippets::dsl as snippets_dsl;
         
-        let pool = create_test_pool()?;
-        let mut conn = pool.get()?;
-        
-        // Check if FTS5 is available
-        let fts5_available = match diesel::sql_query("SELECT 1 as available FROM pragma_compile_options WHERE compile_options = 'ENABLE_FTS5'")
-            .execute(&mut *conn) {
+        #[test]
+        fn test_search_snippets() -> Result<()> {
+            let pool = create_test_pool()?;
+            let mut conn = pool.get()?;
+            
+            // Check if FTS5 is available
+            let fts5_available = match diesel::sql_query(
+                "SELECT 1 as available FROM pragma_compile_options WHERE compile_options = 'ENABLE_FTS5'"
+            ).execute(&mut *conn) {
                 Ok(_) => true,
                 Err(e) => {
                     eprintln!("WARNING: Could not check FTS5 availability: {}", e);
                     false
                 }
             };
-        
-        if !fts5_available {
-            eprintln!("Skipping FTS5 test - FTS5 is not available in this SQLite build");
-            return Ok(());
-        }
-        
-        // Create FTS5 virtual table if it doesn't exist
-        diesel::sql_query(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS snippets_fts USING fts5(title, content, content='snippets', content_rowid='id')"
-        ).execute(&mut *conn)?;
-        
-        // Clear any existing test data
-        diesel::sql_query("DELETE FROM snippets_fts").execute(&mut *conn)?;
-        diesel::delete(snippets_dsl::snippets).execute(&mut *conn)?;
+            
+            if !fts5_available {
+                eprintln!("Skipping FTS5 test - FTS5 is not available in this SQLite build");
+                return Ok(());
+            }
+            
+            // Create FTS5 virtual table if it doesn't exist
+            diesel::sql_query(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS snippets_fts USING fts5(title, content, content='snippets', content_rowid='id')"
+            ).execute(&mut *conn)?;
+            
+            // Clear any existing test data
+            diesel::sql_query("DELETE FROM snippets_fts").execute(&mut *conn)?;
+            diesel::delete(snippets_dsl::snippets).execute(&mut *conn)?;
         
         // Helper function to create and save a snippet
         fn create_and_save_snippet(
@@ -435,5 +440,29 @@ mod tests {
         assert_eq!(empty_search.len(), 3);
         
         Ok(())
+        }
+    }
+    
+    // PostgreSQL-specific tests
+    #[cfg(feature = "postgres")]
+    mod postgres_tests {
+        use super::*;
+        use crate::models::{NewDbSnippet, UpdateSnippet};
+        use crate::schema::snippets::dsl as snippets_dsl;
+        use uuid::Uuid;
+        
+        #[test]
+        fn test_search_snippets() -> Result<()> {
+            let pool = create_test_pool()?;
+            let mut conn = pool.get()?;
+            
+            // Clear any existing test data
+            diesel::delete(snippets_dsl::snippets).execute(&mut *conn)?;
+            
+            // TODO: Add PostgreSQL-specific full-text search tests here
+            eprintln!("PostgreSQL full-text search tests not yet implemented");
+            
+            Ok(())
+        }
     }
 }

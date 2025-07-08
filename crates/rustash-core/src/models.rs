@@ -52,7 +52,8 @@ impl Query {
 /// A snippet stored in the database
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
 #[diesel(table_name = crate::schema::snippets)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct DbSnippet {
     pub uuid: String, // UUID stored as string
     pub title: String,
@@ -77,7 +78,8 @@ pub struct NewDbSnippet {
 /// A lightweight representation of a snippet for list views
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone, PartialEq, QueryableByName)]
 #[diesel(table_name = crate::schema::snippets)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
 pub struct SnippetListItem {
     #[diesel(sql_type = Text)]
     pub uuid: String,
