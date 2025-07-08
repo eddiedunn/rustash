@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use arboard::Clipboard;
-use console::{Term, style};
-use rustash_core::SnippetWithTags;
+use console::{style, Term};
+use rustash_core::models::SnippetWithTags;
 use std::io::Write;
 
 /// Copy text to clipboard
@@ -52,10 +52,6 @@ fn format_table(snippets: &[SnippetWithTags]) -> Result<()> {
 
     // Rows
     for snippet in snippets {
-        let id_str = snippet
-            .id
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| "?".to_string());
         let tags_str = if snippet.tags.is_empty() {
             style("").dim().to_string()
         } else {
@@ -73,7 +69,7 @@ fn format_table(snippets: &[SnippetWithTags]) -> Result<()> {
         writeln!(
             term,
             "{:<4} {:<43} {:<20} {}",
-            style(id_str).green(),
+            &snippet.uuid[..8],
             title,
             tags_str,
             style(updated).dim()
@@ -87,10 +83,6 @@ fn format_compact(snippets: &[SnippetWithTags]) -> Result<()> {
     let mut term = Term::stdout();
 
     for snippet in snippets {
-        let id_str = snippet
-            .id
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| "?".to_string());
         let tags_str = if snippet.tags.is_empty() {
             String::new()
         } else {
@@ -100,7 +92,7 @@ fn format_compact(snippets: &[SnippetWithTags]) -> Result<()> {
         writeln!(
             term,
             "{}: {}{}",
-            style(id_str).green().bold(),
+            style(&snippet.uuid).green().bold(),
             snippet.title,
             style(tags_str).yellow()
         )?;
@@ -117,12 +109,7 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
             writeln!(term, "{}", "─".repeat(80))?;
         }
 
-        let id_str = snippet
-            .id
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| "?".to_string());
-
-        writeln!(term, "{}: {}", style("ID").bold(), style(id_str).green())?;
+        writeln!(term, "{}: {}", style("ID").bold(), style(&snippet.uuid).green())?;
         writeln!(term, "{}: {}", style("Title").bold(), snippet.title)?;
 
         if !snippet.tags.is_empty() {
@@ -138,13 +125,13 @@ fn format_detailed(snippets: &[SnippetWithTags]) -> Result<()> {
             term,
             "{}: {}",
             style("Created").bold(),
-            snippet.created_at.format("%Y-%m-%d %H:%M:%S")
+            snippet.created_at.format("%Y-%m-%d %H:%M:%S").to_string()
         )?;
         writeln!(
             term,
             "{}: {}",
             style("Updated").bold(),
-            snippet.updated_at.format("%Y-%m-%d %H:%M:%S")
+            snippet.updated_at.format("%Y-%m-%d %H:%M:%S").to_string()
         )?;
 
         writeln!(term, "{}:", style("Content").bold())?;

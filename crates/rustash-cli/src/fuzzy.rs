@@ -1,8 +1,10 @@
 //! Fuzzy finder integration
 
 use anyhow::Result;
-use rustash_core::SnippetWithTags;
+use rustash_core::models::SnippetWithTags;
 use skim::prelude::*;
+use std::sync::Arc;
+use std::borrow::Cow;
 
 // Simple wrapper for skim items
 #[derive(Debug, Clone)]
@@ -25,16 +27,13 @@ pub fn fuzzy_select_snippet(snippets: &[SnippetWithTags]) -> Result<Option<Snipp
     let items: Vec<String> = snippets
         .iter()
         .map(|s| {
-            let id_str =
-                s.id.map(|id| id.to_string())
-                    .unwrap_or_else(|| "?".to_string());
             let tags_str = if s.tags.is_empty() {
                 String::new()
             } else {
                 format!(" [{}]", s.tags.join(", "))
             };
 
-            format!("{}: {}{}", id_str, s.title, tags_str)
+            format!("{}: {}{}", s.uuid, s.title, tags_str)
         })
         .collect();
 
@@ -67,14 +66,12 @@ pub fn fuzzy_select_snippet(snippets: &[SnippetWithTags]) -> Result<Option<Snipp
     if let Some(item) = selected_items.first() {
         let selected_text = item.output().to_string();
 
-        // Parse the ID from the selected text (format: "ID: title [tags]")
+        // Parse the UUID from the selected text (format: "UUID: title [tags]")
         if let Some(colon_pos) = selected_text.find(':') {
-            let id_str = &selected_text[..colon_pos];
-            if let Ok(id) = id_str.parse::<i32>() {
-                // Find the snippet with this ID
-                if let Some(snippet) = snippets.iter().find(|s| s.id == Some(id)) {
-                    return Ok(Some(snippet.clone()));
-                }
+            let uuid_str = selected_text[..colon_pos].trim();
+            // Find the snippet with this UUID
+            if let Some(snippet) = snippets.iter().find(|s| s.uuid == uuid_str) {
+                return Ok(Some(snippet.clone()));
             }
         }
     }
@@ -86,23 +83,24 @@ pub fn fuzzy_select_snippet(snippets: &[SnippetWithTags]) -> Result<Option<Snipp
 mod tests {
     use super::*;
     use chrono::Utc;
+    use uuid::Uuid;
 
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[test]
     fn create_test_snippet(
-        id: i32,
+        id: &str,
         title: &str,
         content: &str,
         tags: Vec<String>,
     ) -> SnippetWithTags {
         SnippetWithTags {
-            id: Some(id),
+            uuid: id.to_string(),
+            id: Uuid::parse_str(id).unwrap(),
             title: title.to_string(),
             content: content.to_string(),
             tags,
             embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         }
     }
 

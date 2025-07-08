@@ -1,33 +1,37 @@
 //! Snippet CRUD operations
 
 use crate::database::DbConnection;
-use crate::error::{Error, OptionExt, Result, UuidExt};
+use crate::error::{Error, Result, UuidExt};
 use crate::models::{NewDbSnippet, Snippet, SnippetListItem, SnippetWithTags, UpdateSnippet};
 use diesel::prelude::*;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Add a new snippet to the database
-pub fn add_snippet(conn: &mut DbConnection, new_snippet: NewDbSnippet) -> Result<Snippet> {
+pub fn add_snippet(conn: &mut DbConnection, new_snippet: Snippet) -> Result<Snippet> {
     // Validate input
     validate_snippet_content(&new_snippet.title, &new_snippet.content)?;
     
     use crate::schema::snippets::dsl::*;
     
-    // SQLite doesn't support RETURNING with `last_insert_rowid()` for non-integer PKs,
-    // so we insert and then fetch by UUID
+    // Convert Snippet to NewDbSnippet for insertion
+    let new_db_snippet = NewDbSnippet::from(new_snippet);
+    
+    // Insert the new snippet and get the result
+    // Note: SQLite doesn't support RETURNING, so we need to fetch the inserted row separately
+    let snippet_uuid = new_db_snippet.uuid.clone();
+    
     diesel::insert_into(snippets)
-        .values(&new_snippet)
+        .values(&new_db_snippet)
         .execute(conn)?;
     
-    // Get the inserted row by UUID
+    // Fetch the newly inserted snippet
     let result = snippets
-        .filter(uuid.eq(&new_snippet.uuid))
+        .filter(uuid.eq(&snippet_uuid))
         .select(Snippet::as_select())
         .first(conn)
         .map_err(|e| {
             if let diesel::result::Error::NotFound = e {
-                Error::other(format!("Failed to retrieve newly created snippet with UUID: {}", new_snippet.uuid))
+                Error::not_found(format!("Failed to retrieve newly created snippet with UUID: {}", snippet_uuid))
             } else {
                 e.into()
             }
@@ -213,16 +217,16 @@ pub fn search_snippets(
 /// Expand placeholders in snippet content with provided variables
 /// 
 /// # Arguments
-/// * `content` - The content with placeholders in the format `{{key}}`
+/// * `content_str` - The content with placeholders in the format `{{key}}`
 /// * `variables` - A map of variable names to their values
 /// 
 /// # Returns
 /// The content with all placeholders replaced by their corresponding values
-pub fn expand_placeholders(content: &str, variables: &HashMap<String, String>) -> String {
-    let mut result = content.to_string();
+pub fn expand_placeholders(content_str: &str, variables: &HashMap<String, String>) -> String {
+    let mut result = content_str.to_string();
     
     for (key, value) in variables {
-        let placeholder = format!("{{{{}}}}", key);
+        let placeholder = format!("{{{{{}}}}}", key);
         result = result.replace(&placeholder, value);
     }
     
@@ -267,10 +271,10 @@ pub fn list_snippets_with_tags(
     // Fetch the full snippets in a single query using the UUIDs
     let full_snippets = snippets
         .filter(uuid.eq_any(snippet_uuids))
-        .select(DbSnippet::as_select())
-        .load::<DbSnippet>(conn)?;
+        .select(Snippet::as_select())
+        .load::<Snippet>(conn)?;
     
-    // Convert DbSnippet to SnippetWithTags
+    // Convert Snippet to SnippetWithTags
     let mut results: Vec<SnippetWithTags> = full_snippets
         .into_iter()
         .map(SnippetWithTags::from)
@@ -291,21 +295,21 @@ pub fn list_snippets_with_tags(
 }
 
 /// Validate snippet content
-fn validate_snippet_content(title: &str, content: &str) -> Result<()> {
-    if title.trim().is_empty() {
-        return Err(Error::validation("Title cannot be empty"));
+pub fn validate_snippet_content(snippet_title: &str, snippet_content: &str) -> Result<()> {
+    if snippet_title.trim().is_empty() {
+        return Err(Error::validation("Snippet title cannot be empty"));
     }
     
-    if content.trim().is_empty() {
-        return Err(Error::validation("Content cannot be empty"));
+    if snippet_content.trim().is_empty() {
+        return Err(Error::validation("Snippet content cannot be empty"));
     }
     
-    if title.len() > 255 {
-        return Err(Error::validation("Title cannot exceed 255 characters"));
+    if snippet_title.len() > 255 {
+        return Err(Error::validation("Snippet title is too long (max 255 characters)"));
     }
     
-    if content.len() > 100_000 {
-        return Err(Error::validation("Content cannot exceed 100,000 characters"));
+    if snippet_content.len() > 100_000 {
+        return Err(Error::validation("Snippet content is too long (max 100,000 characters)"));
     }
     
     Ok(())

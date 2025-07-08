@@ -1,12 +1,12 @@
 //! Use snippet command
 
 use crate::utils::copy_to_clipboard;
+use crate::db;
 use anyhow::{Result, Context};
 use clap::Args;
 use dialoguer::Input;
-use crate::db;
 use regex::Regex;
-use rustash_core::{SnippetWithTags, expand_placeholders, get_snippet_by_id};
+use rustash_core::{expand_placeholders, get_snippet_by_id, models::SnippetWithTags};
 use std::collections::HashMap;
 use uuid::Uuid;
 

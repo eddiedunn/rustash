@@ -1,12 +1,11 @@
 //! List snippets command
 
+use crate::db;
 use crate::fuzzy::fuzzy_select_snippet;
 use crate::utils::format_snippet_list;
 use anyhow::Result;
 use clap::Args;
-use crate::db;
 use rustash_core::list_snippets_with_tags;
-use rustash_core::SnippetWithTags;
 
 #[derive(Args)]
 pub struct ListCommand {

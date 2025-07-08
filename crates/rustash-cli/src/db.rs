@@ -1,11 +1,10 @@
 //! Database connection management for the CLI
 
-use crate::main::DatabaseBackend;
+use crate::DatabaseBackend;
 use anyhow::{Context, Result};
 use rustash_core::database::{create_connection_pool, DbPool, DbConnectionGuard};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::str::FromStr;
 
 lazy_static::lazy_static! {
     static ref DB_POOL: std::sync::Mutex<Option<Arc<DbPool>>> = std::sync::Mutex::new(None);
@@ -40,7 +39,13 @@ pub fn init(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
     };
 
     // Set the DATABASE_URL environment variable for diesel_cli compatibility
-    std::env::set_var("DATABASE_URL", &database_url);
+    // This is unsafe because it's not thread-safe, but it's acceptable here because:
+    // 1. It's called once at application startup
+    // 2. It's before any threads are spawned
+    // 3. The value is constant for the lifetime of the application
+    unsafe {
+        std::env::set_var("DATABASE_URL", &database_url);
+    }
     
     let pool = Arc::new(create_connection_pool()?);
     *DB_POOL.lock().unwrap() = Some(pool);

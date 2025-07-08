@@ -2,10 +2,11 @@
 
 use crate::memory::MemoryItem;
 use crate::schema::snippets;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use diesel::prelude::*;
+use diesel::sql_types::{Text, Timestamp};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use uuid::Uuid;
@@ -136,33 +137,7 @@ impl fmt::Display for Snippet {
     }
 }
 
-// Helper macro to implement Clone for trait objects
-macro_rules! impl_clone_for_trait {
-    ($trait:ident) => {
-        /// Helper trait for cloning trait objects
-        pub trait CloneDyn: $trait {
-            fn clone_dyn(&self) -> Box<dyn $trait>;
-        }
-
-        impl<T> CloneDyn for T
-        where
-            T: $trait + Clone + 'static,
-        {
-            fn clone_dyn(&self) -> Box<dyn $trait> {
-                Box::new(self.clone())
-            }
-        }
-
-        impl Clone for Box<dyn $trait> {
-            fn clone(&self) -> Self {
-                self.clone_dyn()
-            }
-        }
-    };
-}
-
-// Implement Clone for MemoryItem trait objects
-impl_clone_for_trait!(MemoryItem);
+// Use the CloneDyn implementation from memory.rs
 
 impl MemoryItem for Snippet {
     fn id(&self) -> Uuid { 
@@ -195,12 +170,20 @@ impl MemoryItem for Snippet {
         map
     }
     
-    fn created_at(&self) -> DateTime<Utc> { 
-        DateTime::from_utc(self.created_at, Utc)
+    fn created_at(&self) -> DateTime<Utc> {
+        Utc.from_utc_datetime(&self.created_at)
     }
     
-    fn updated_at(&self) -> DateTime<Utc> { 
-        DateTime::from_utc(self.updated_at, Utc)
+    fn updated_at(&self) -> DateTime<Utc> {
+        Utc.from_utc_datetime(&self.updated_at)
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn clone_dyn(&self) -> Box<dyn MemoryItem> {
+        Box::new(self.clone())
     }
 }
 

@@ -3,7 +3,7 @@
 use super::StorageBackend;
 use crate::{
     error::{Error, Result},
-    models::{DbSnippet, NewDbSnippet, Snippet, SnippetWithTags},
+    models::{DbSnippet, NewDbSnippet, Snippet},
 };
 use async_trait::async_trait;
 use diesel::{
@@ -36,25 +36,26 @@ impl SqliteBackend {
 
 #[async_trait]
 impl StorageBackend for SqliteBackend {
-    async fn save(&self, item: &dyn crate::memory::MemoryItem) -> Result<()> {
+    async fn save(&self, item: &(dyn crate::memory::MemoryItem + Send + Sync)) -> Result<()> {
         use crate::schema::snippets::dsl::*;
         
         let snippet = item
             .as_any()
             .downcast_ref::<Snippet>()
-            .ok_or_else(|| Error::InvalidData("Expected a Snippet".into()))?;
+            .ok_or_else(|| Error::other("Expected a Snippet"))?;
 
         let new_snippet: NewDbSnippet = snippet.clone().into();
         let mut conn = self.get_conn()?;
 
-        diesel::insert_into(snippets::table)
+        // Use the table name directly since we're using the dsl
+        diesel::insert_into(snippets)
             .values(&new_snippet)
             .execute(&mut *conn)?;
 
         Ok(())
     }
 
-    async fn get(&self, id: &Uuid) -> Result<Option<Box<dyn crate::memory::MemoryItem>>> {
+    async fn get(&self, id: &Uuid) -> Result<Option<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
         use crate::schema::snippets::dsl::*;
         
         let mut conn = self.get_conn()?;
@@ -67,7 +68,7 @@ impl StorageBackend for SqliteBackend {
 
         Ok(db_snippet.map(|s| {
             let snippet: Snippet = s.into();
-            Box::new(snippet) as Box<dyn crate::memory::MemoryItem>
+            Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>
         }))
     }
 
@@ -82,55 +83,17 @@ impl StorageBackend for SqliteBackend {
         Ok(())
     }
 
-    async fn query(
-        &self,
-        query: &crate::models::Query,
-    ) -> Result<Vec<Box<dyn crate::memory::MemoryItem>>> {
-        use crate::schema::snippets::dsl::*;
-        
-        let mut conn = self.get_conn()?;
-        let mut query_builder = snippets.into_boxed();
-
-        if let Some(text) = &query.text_filter {
-            query_builder = query_builder.filter(
-                title.like(format!("%{}%", text))
-                    .or(content.like(format!("%{}%", text))),
-            );
-        }
-
-        if let Some(tag) = &query.tag_filter {
-            query_builder = query_builder.filter(tags.like(format!("%\"{}\"%", tag)));
-        }
-
-        if query.limit > 0 {
-            query_builder = query_builder.limit(query.limit as i64);
-        }
-
-        let db_snippets = query_builder
-            .order(updated_at.desc())
-            .load::<DbSnippet>(&mut *conn)?;
-
-        let result = db_snippets
-            .into_iter()
-            .map(|s| {
-                let snippet: Snippet = s.into();
-                Box::new(snippet) as Box<dyn crate::memory::MemoryItem>
-            })
-            .collect();
-
-        Ok(result)
-    }
+    // Note: The query method was removed as it's not part of the StorageBackend trait
 
     async fn vector_search(
         &self,
         _embedding: &[f32],
         _limit: usize,
-    ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem>, f32)>> {
-        // TODO: Implement vector similarity search with SQLite
-        // This would require an extension like sqlite-vss
+    ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
+        // TODO: Implement vector search for SQLite
         Ok(Vec::new())
     }
-
+    
     async fn add_relation(
         &self,
         _from: &Uuid,

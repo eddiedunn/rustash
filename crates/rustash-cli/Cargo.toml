@@ -27,6 +27,9 @@ dialoguer = { workspace = true }
 console = { workspace = true }
 indicatif = { workspace = true }
 
+# UUID handling
+uuid = { workspace = true }
+
 # Clipboard integration
 arboard = { workspace = true }
 

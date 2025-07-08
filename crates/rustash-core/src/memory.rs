@@ -1,13 +1,14 @@
 //! Core memory item trait for Rustash storage system.
 
-use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::HashMap;
+use std::fmt;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use serde_json::Value;
 
 /// The core trait for any piece of information stored in Rustash.
-pub trait MemoryItem: erased_serde::Serialize + Send + Sync + std::fmt::Debug {
+pub trait MemoryItem: erased_serde::Serialize + Send + Sync + fmt::Debug + Any + 'static {
     /// Returns the unique identifier for this memory item
     fn id(&self) -> Uuid;
     
@@ -25,17 +26,81 @@ pub trait MemoryItem: erased_serde::Serialize + Send + Sync + std::fmt::Debug {
     
     /// Returns when this memory item was last updated
     fn updated_at(&self) -> DateTime<Utc>;
+    
+    /// Create a boxed clone of this memory item
+    fn clone_dyn(&self) -> Box<dyn MemoryItem>;
+    
+    /// Create a boxed clone of this memory item with Send + Sync bounds
+    fn clone_dyn_send_sync(&self) -> Box<dyn MemoryItem + Send + Sync> {
+        Box::new(self.clone_dyn())
+    }
+    
+    /// Returns a reference to the Any trait to allow for downcasting
+    fn as_any(&self) -> &dyn Any;
 }
 
 // This allows us to serialize a `Box<dyn MemoryItem>`
 erased_serde::serialize_trait_object!(MemoryItem);
+
+// Implement MemoryItem for Box<dyn MemoryItem>
+impl MemoryItem for Box<dyn MemoryItem> {
+    fn id(&self) -> Uuid {
+        (**self).id()
+    }
+
+    fn item_type(&self) -> &'static str {
+        (**self).item_type()
+    }
+
+    fn content(&self) -> &str {
+        (**self).content()
+    }
+
+    fn metadata(&self) -> HashMap<String, Value> {
+        (**self).metadata()
+    }
+
+    fn created_at(&self) -> DateTime<Utc> {
+        (**self).created_at()
+    }
+
+    fn updated_at(&self) -> DateTime<Utc> {
+        (**self).updated_at()
+    }
+    
+    fn clone_dyn(&self) -> Box<dyn MemoryItem> {
+        (**self).clone_dyn()
+    }
+    
+    fn clone_dyn_send_sync(&self) -> Box<dyn MemoryItem + Send + Sync> {
+        (**self).clone_dyn_send_sync()
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        (**self).as_any()
+    }
+}
+
+// Implement Clone for Box<dyn MemoryItem>
+impl Clone for Box<dyn MemoryItem> {
+    fn clone(&self) -> Self {
+        self.clone_dyn()
+    }
+}
+
+// Implement Clone for Box<dyn MemoryItem + Send + Sync>
+impl Clone for Box<dyn MemoryItem + Send + Sync> {
+    fn clone(&self) -> Self {
+        (**self).clone_dyn_send_sync()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Clone)]
     struct TestMemory {
         id: Uuid,
         content: String,
@@ -50,6 +115,22 @@ mod tests {
         fn metadata(&self) -> HashMap<String, Value> { HashMap::new() }
         fn created_at(&self) -> DateTime<Utc> { self.created_at }
         fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
+        
+        fn clone_dyn(&self) -> Box<dyn MemoryItem> {
+            Box::new(self.clone())
+        }
+    }
+    
+    impl TestMemory {
+        fn new(content: &str) -> Self {
+            let now = Utc::now();
+            Self {
+                id: Uuid::new_v4(),
+                content: content.to_string(),
+                created_at: now,
+                updated_at: now,
+            }
+        }
     }
 
     #[test]
