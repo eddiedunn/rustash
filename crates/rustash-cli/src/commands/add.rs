@@ -13,11 +13,11 @@ use crate::gui;
 #[derive(Args)]
 pub struct AddCommand {
     /// Title of the snippet
-    #[arg(required_unless_present = "stdin")]
+    #[arg(short = 'i', long)]
     pub title: Option<String>,
 
     /// Content of the snippet
-    #[arg(required_unless_present = "stdin")]
+    #[arg(short, long)]
     pub content: Option<String>,
 
     /// Tags for the snippet
@@ -31,12 +31,20 @@ pub struct AddCommand {
 
 impl AddCommand {
     pub fn execute(self) -> Result<()> {
-        // If title or content is provided, or stdin is used, run in CLI mode.
-        if self.title.is_some() || self.content.is_some() || self.stdin {
+        // If we're reading from stdin, use CLI mode
+        if self.stdin {
+            return self.execute_cli();
+        }
+        
+        // If both title and content are provided, use CLI mode
+        if self.title.is_some() && self.content.is_some() {
             self.execute_cli()
-        } else {
-            // Otherwise, launch the GUI.
+        } else if self.title.is_none() && self.content.is_none() {
+            // If neither is provided, launch the GUI
             self.launch_gui()
+        } else {
+            // If only one is provided, show an error
+            anyhow::bail!("Both --title and --content must be provided for command-line mode")
         }
     }
 

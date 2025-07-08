@@ -21,7 +21,10 @@ CREATE VIRTUAL TABLE snippets_fts USING fts5(
     tags,
     content='snippets',
     content_rowid='rowid',
-    tokenize='porter unicode61 remove_diacritics 1'
+    tokenize='porter unicode61 remove_diacritics 1',
+    prefix='2,3,4,5,6,7',  -- Enable prefix search for 2-7 character prefixes
+    columnsize=0,          -- Don't store the content (we have it in the main table)
+    detail=full            -- Store all token positions for better search
 );
 
 -- Triggers to keep FTS table in sync with snippets table
