@@ -37,13 +37,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    snippets_fts_docsize (id) {
-        id -> Nullable<Integer>,
-        sz -> Nullable<Binary>,
-    }
-}
-
-diesel::table! {
     snippets_fts_idx (segid, term) {
         segid -> Binary,
         term -> Binary,
@@ -56,6 +49,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     snippets_fts,
     snippets_fts_config,
     snippets_fts_data,
-    snippets_fts_docsize,
     snippets_fts_idx,
 );

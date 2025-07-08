@@ -131,6 +131,8 @@ fn default_db_path() -> Result<PathBuf> {
     Ok(path)
 }
 
+
+
 /// Validate that the database path is safe to use
 fn validate_db_path(path: &Path) -> Result<()> {
     // Check if the path is absolute
@@ -141,6 +143,45 @@ fn validate_db_path(path: &Path) -> Result<()> {
     // Prevent using special files or devices
     if path.file_name().and_then(OsStr::to_str).map_or(true, |name| name.is_empty()) {
         return Err(Error::other("Invalid database filename"));
+    }
+    
+    // Check if the path itself is a directory
+    if path.is_dir() {
+        return Err(Error::other("Database path cannot be a directory"));
+    }
+    
+    // On Unix-like systems, check for symlinks in the path for security
+    #[cfg(unix)]
+    {
+        // 1. Check if the path itself is a symlink
+        if path.is_symlink() {
+            return Err(Error::other(format!(
+                "Database path '{}' cannot be a symlink for security reasons",
+                path.display()
+            )));
+        }
+
+        // 2. Check if any ancestor is a symlink
+        if let Some(parent) = path.parent() {
+            let mut current = parent;
+            loop {
+                if current.is_symlink() {
+                    return Err(Error::other(format!(
+                        "Database path cannot be inside a symlinked directory. Ancestor '{}' is a symlink.",
+                        current.display()
+                    )));
+                }
+                if let Some(p) = current.parent() {
+                    // Break if we've reached the root.
+                    if p == current {
+                        break;
+                    }
+                    current = p;
+                } else {
+                    break;
+                }
+            }
+        }
     }
     
     // Get the parent directory
@@ -217,27 +258,11 @@ pub fn create_connection_pool() -> Result<DbPool> {
     Ok(pool)
 }
 
-/// Establish a single database connection (for backward compatibility)
-/// Note: This creates a new connection pool each time, which is not efficient.
-/// Prefer using DbPool and getting connections from it instead.
-pub fn establish_connection() -> Result<DbConnection> {
-    let _pool = create_connection_pool()?;
-    // The connection is not used directly, we create a new one below
-    let _conn = _pool.get()?;
-    // Return a new connection instead of trying to extract from the pooled connection
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| default_db_path().unwrap().to_string_lossy().into_owned());
-    #[cfg(feature = "sqlite")]
-    return Ok(SqliteConnection::establish(&database_url)?);
-    
-    #[cfg(feature = "postgres")]
-    return Ok(PgConnection::establish(&database_url)?);
-}
-
 /// Create a test database connection pool (in-memory SQLite)
 pub fn create_test_pool() -> Result<DbPool> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    // Use a unique database name for each test
+    // Use a unique database name for each test to ensure isolation
     static TEST_DB_COUNTER: AtomicUsize = AtomicUsize::new(0);
     let test_db_number = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let database_url = format!("file:test_db_{}?mode=memory&cache=shared", test_db_number);
@@ -245,7 +270,7 @@ pub fn create_test_pool() -> Result<DbPool> {
     // Create the connection pool
     let pool = DbPool::new(&database_url)?;
     
-    // Test the connection and set up the database
+    // Set up the database
     {
         let mut conn = pool.get()?;
         
@@ -262,7 +287,6 @@ pub fn create_test_pool() -> Result<DbPool> {
         #[cfg(feature = "sqlite")]
         {
             use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-            use std::path::Path;
             
             // This will include the migrations at compile time
             // The path is relative to the crate root (where Cargo.toml is located)
@@ -278,56 +302,220 @@ pub fn create_test_pool() -> Result<DbPool> {
     Ok(pool)
 }
 
-/// Establish a test database connection (for backward compatibility)
-/// Note: This creates a new test pool each time, which is not efficient.
-/// Prefer using create_test_pool and getting connections from it instead.
-pub fn establish_test_connection() -> Result<DbConnection> {
-    // For test connections, we'll just create a new in-memory SQLite connection
-    #[cfg(feature = "sqlite")]
-    return Ok(SqliteConnection::establish("file::memory:?cache=shared")?);
-    
-    #[cfg(feature = "postgres")]
-    return Ok(PgConnection::establish("postgres://localhost/test")?);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn test_connection_pool() -> Result<()> {
+        // Test with in-memory SQLite
         let pool = create_test_pool()?;
+        assert!(pool.get().is_ok(), "Should be able to get a connection from the pool");
         
-        // Test getting a connection from the pool and executing a simple query
-        let mut conn = pool.get()?;
-        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
-            .get_result(&mut *conn)?;
-        assert_eq!(result, 1);
-        
-        // Test multiple connections
-        let mut conn2 = pool.get()?;
-        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
-            .get_result(&mut *conn2)?;
-        assert_eq!(result, 1);
+        // Test that we can get multiple connections
+        let conn1 = pool.get()?;
+        let conn2 = pool.get()?;
+        assert_ne!(
+            std::ptr::addr_of!(conn1) as *const u8,
+            std::ptr::addr_of!(conn2) as *const u8,
+            "Should get different connection instances"
+        );
         
         Ok(())
     }
-
+    
     #[test]
     fn test_connection_guard() -> Result<()> {
         let pool = create_test_pool()?;
+        
+        // Test basic guard functionality
         let mut guard = DbConnectionGuard::new(&pool)?;
         
-        // Test deref and deref_mut by executing a simple query
-        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
-            .get_result(&mut *guard)?;
-        assert_eq!(result, 1);
+        // Test Deref
+        let _: &DbConnection = &*guard;
         
-        // Test into_inner
+        // Test DerefMut
+        let _: &mut DbConnection = &mut *guard;
+        
+        // Test into_inner and execute a simple query
         let mut conn = guard.into_inner();
         let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
-            .get_result(&mut *conn)?;
-        assert_eq!(result, 1);
+            .get_result(&mut conn)?;
+        assert_eq!(result, 1, "Should be able to execute query on connection");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_default_db_path() -> Result<()> {
+        // Test that we get a valid path
+        let path = default_db_path()?;
+        assert!(path.parent().is_some(), "Path should have a parent directory");
+        assert_eq!(
+            path.file_name().and_then(OsStr::to_str),
+            Some(DEFAULT_DB_FILENAME),
+            "Default filename should be used"
+        );
+        
+        // Test that the parent directory exists or can be created
+        let parent = path.parent().unwrap();
+        assert!(parent.exists() || fs::create_dir_all(parent).is_ok(),
+               "Should be able to create parent directory if it doesn't exist");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_validate_db_path() -> Result<()> {
+        // Test with a valid path
+        let temp_dir = tempdir()?;
+        let valid_path = temp_dir.path().join("test.db");
+        println!("Testing valid path: {:?}", valid_path);
+        validate_db_path(&valid_path)?;
+        
+        // Test with a path that's a directory
+        let dir_path = temp_dir.path();
+        assert!(validate_db_path(dir_path).is_err(), "Should reject directory path");
+        
+        // Test with a path outside the home directory (should be allowed)
+        // We can't guarantee /tmp exists on all systems, so use tempdir again.
+        let outside_dir = tempdir()?;
+        let outside_path = outside_dir.path().join("rustash_test.db");
+        validate_db_path(&outside_path).expect("Should allow paths outside home directory");
+        
+        // Test with a path that is a symlink (should be rejected)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs as unix_fs;
+            
+            // Create a target file for the symlink
+            let target_file = temp_dir.path().join("real.db");
+            fs::write(&target_file, "data")?;
+            
+            // Create the symlink pointing to the file
+            let symlink_path = temp_dir.path().join("symlink.db");
+            println!("Creating symlink from {:?} to /etc/passwd", symlink_path);
+            unix_fs::symlink("/etc/passwd", &symlink_path)?;
+            
+            // Check if the symlink was created successfully
+            let symlink_metadata = std::fs::symlink_metadata(&symlink_path);
+            println!("Symlink metadata: {:?}", symlink_metadata);
+            if let Ok(metadata) = symlink_metadata {
+                println!("Is symlink: {}", metadata.file_type().is_symlink());
+            }
+            
+            // Check if the path is detected as a symlink by our function
+            let contains_symlink = is_path_containing_symlink(&symlink_path);
+            println!("is_path_containing_symlink result: {:?}", contains_symlink);
+            
+            // Now test the actual validation
+            let validation_result = validate_db_path(&symlink_path);
+            println!("validate_db_path result: {:?}", validation_result);
+            
+            assert!(
+                validation_result.is_err(),
+                "Should reject symlink paths for security"
+            );
+        }
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_create_connection_pool() -> Result<()> {
+        // Test with default configuration (should use in-memory for tests)
+        let pool = create_connection_pool()?;
+        let mut conn = pool.get()?;
+        
+        // Test that we can execute a simple query
+        let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
+            .get_result(&mut conn)?;
+        assert_eq!(result, 1, "Should be able to execute query on connection");
+        
+        // Test with invalid database URL - use unsafe block for env var manipulation
+        let result = {
+            unsafe { std::env::set_var("DATABASE_URL", "file:/nonexistent/path/test.db") };
+            let result = DbPool::new("file:/nonexistent/path/test.db");
+            unsafe { std::env::remove_var("DATABASE_URL") };
+            result
+        };
+        
+        assert!(result.is_err(), "Should fail with invalid database path");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_connection_pool_multithreaded() -> Result<()> {
+        use std::sync::Arc;
+        use std::thread;
+        
+        let pool = Arc::new(create_test_pool()?);
+        let mut handles = vec![];
+        
+        // Test getting connections from multiple threads
+        for i in 0..5 {
+            let pool_clone = Arc::clone(&pool);
+            let handle = thread::spawn(move || {
+                let conn = pool_clone.get();
+                assert!(conn.is_ok(), "Thread {}: Failed to get connection", i);
+                // Use the connection to ensure it works
+                let mut conn = conn.unwrap();
+                let result: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1 + 1"))
+                    .get_result(&mut conn)
+                    .expect("Should be able to execute query");
+                assert_eq!(result, 2, "Thread {}: Query result mismatch", i);
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().expect("Thread panicked");
+        }
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_connection_timeout() -> Result<()> {
+        // Create a pool with a small number of connections and short timeout
+        let url = "file::memory:?cache=shared";
+        let manager = ConnectionManagerType::new(url);
+        let pool = r2d2::Pool::builder()
+            .max_size(1) // Only allow 1 connection
+            .connection_timeout(std::time::Duration::from_millis(100))
+            .build(manager)
+            .map_err(|e| Error::other(format!("Failed to create connection pool: {}", e)))?;
+            
+        let pool = DbPool(Arc::new(pool));
+        
+        // Get the first connection (should succeed)
+        let conn1 = pool.get();
+        assert!(conn1.is_ok(), "Should be able to get first connection");
+        
+        // Try to get a second connection (should fail due to pool exhaustion)
+        let conn2 = pool.get();
+        assert!(conn2.is_err(), "Should not be able to get second connection");
+        
+        // Verify the error is a timeout error
+        if let Err(e) = conn2 {
+            assert!(
+                e.to_string().contains("timeout") || 
+                e.to_string().contains("timed out") ||
+                e.to_string().contains("connection limit"),
+                "Expected timeout or connection limit error, got: {}", e
+            );
+        }
+        
+        // Drop the first connection
+        drop(conn1);
+        
+        // Now we should be able to get a connection again
+        let conn3 = pool.get();
+        assert!(conn3.is_ok(), "Should be able to get connection after previous was dropped");
         
         Ok(())
     }

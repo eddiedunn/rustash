@@ -110,44 +110,55 @@ pub async fn create_backend(database_url: &str) -> Result<Box<dyn StorageBackend
         
         #[cfg(feature = "sqlite")]
         {
-            // Set up SQLite backend
             use diesel::{
                 r2d2::{ConnectionManager, Pool},
                 SqliteConnection,
             };
             use std::path::Path;
+            use std::sync::Arc;
 
-            // Ensure the database directory exists
-            if let Some(parent) = Path::new(database_url.trim_start_matches("sqlite://")).parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| 
-                        crate::error::Error::other(format!("Failed to create database directory: {}", e))
-                    )?;
-                }
-            }
-
-            let manager = ConnectionManager::<SqliteConnection>::new(database_url);
-            let pool = Pool::builder()
-                .build(manager)
-                .map_err(|e| crate::error::Error::other(format!("Failed to create SQLite connection pool: {}", e)))?;
-
-            // Run migrations
-            let conn = &mut pool.get()
-                .map_err(|e| crate::error::Error::other(format!("Failed to get connection from pool: {}", e)))?;
-                
-            // Use the migration API correctly
-            use diesel_migrations::{FileBasedMigrations, MigrationHarness};
+            // Clone the database URL for the async block
+            let database_url = database_url.to_string();
             
-            // Define the migrations directory
-            let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-            let migrations = FileBasedMigrations::from_path(&migrations_dir)
-                .map_err(|e| crate::error::Error::other(format!("Failed to load migrations: {}", e)))?;
-                
-            // Run pending migrations
-            conn.run_pending_migrations(migrations)
-                .map_err(|e| crate::error::Error::other(format!("Failed to run migrations: {}", e)))?;
+            // Wrap the entire SQLite setup in spawn_blocking since it's I/O bound
+            let backend = tokio::task::spawn_blocking(move || -> Result<Box<dyn StorageBackend>> {
+                // Ensure the database directory exists
+                if let Some(parent) = Path::new(database_url.trim_start_matches("sqlite://")).parent() {
+                    if !parent.exists() {
+                        std::fs::create_dir_all(parent).map_err(|e| 
+                            crate::error::Error::other(format!("Failed to create database directory: {}", e))
+                        )?;
+                    }
+                }
 
-            Ok(Box::new(SqliteBackend::new(pool)) as Box<dyn StorageBackend>)
+                // Create connection manager and pool
+                let manager = ConnectionManager::<SqliteConnection>::new(&database_url);
+                let pool = Pool::builder()
+                    .build(manager)
+                    .map_err(|e| crate::error::Error::other(format!("Failed to create SQLite connection pool: {}", e)))?;
+
+                // Run migrations in the blocking task
+                let conn = &mut pool.get()
+                    .map_err(|e| crate::error::Error::other(format!("Failed to get connection from pool: {}", e)))?;
+                    
+                // Use the migration API correctly
+                use diesel_migrations::{FileBasedMigrations, MigrationHarness};
+                
+                // Define the migrations directory
+                let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+                let migrations = FileBasedMigrations::from_path(&migrations_dir)
+                    .map_err(|e| crate::error::Error::other(format!("Failed to load migrations: {}", e)))?;
+                    
+                // Run pending migrations
+                conn.run_pending_migrations(migrations)
+                    .map_err(|e| crate::error::Error::other(format!("Failed to run migrations: {}", e)))?;
+
+                Ok(Box::new(SqliteBackend::new(pool)) as Box<dyn StorageBackend>)
+            })
+            .await
+            .map_err(|e| crate::error::Error::other(format!("Blocking task panicked: {}", e)))??;
+            
+            Ok(backend)
         }
     } else {
         // Fall back to in-memory backend

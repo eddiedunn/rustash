@@ -1,202 +1,241 @@
-# Rustash User Guide
+# 🚀 Rustash User Guide
 
-Welcome to Rustash! This guide provides everything you need to know to install, configure, and master the Rustash snippet manager.
+Welcome to Rustash! This guide helps you install, configure, and master the Rustash snippet manager for efficient code snippet management.
 
 ## Table of Contents
 
-1.  [Installation](#1-installation)
-2.  [Quick Start](#2-quick-start)
-3.  [Core Concepts](#3-core-concepts)
-4.  [Command Reference](#4-command-reference)
-5.  [Security Best Practices](#5-security-best-practices)
-6.  [Troubleshooting](#6-troubleshooting)
-7.  [FAQ](#7-faq)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Core Concepts](#-core-concepts)
+- [Command Reference](#-command-reference)
+- [Security Best Practices](#-security-best-practices)
+- [Troubleshooting](#-troubleshooting)
+- [FAQ](#-frequently-asked-questions)
 
-## 1. Installation
+## 🛠 Installation
 
 ### Prerequisites
 
-- Rust toolchain (version 1.70+ recommended)
-- Cargo (Rust's package manager)
-- SQLite (for the database backend)
-- SQLite (for the database backend)
+- Rust 1.70 or later (install via [rustup](https://rustup.rs/))
+- SQLite (usually pre-installed on most systems)
 
-### Installation Methods
-
-#### From Source (Recommended)
+### Install Rustash
 
 ```bash
-# Clone the repository (optional, if you want the source)
+# Install from crates.io (recommended)
+cargo install rustash
+
+# Or install the latest development version
 git clone https://github.com/yourusername/rustash.git
 cd rustash
-
-# Build and install the `rustash` binary
 cargo install --path .
 ```
 
-#### Using Cargo (when published)
+### Database Location
 
+By default, Rustash stores snippets in:
+- **macOS/Linux**: `~/.config/rustash/rustash.db`
+- **Windows**: `%APPDATA%\rustash\rustash.db`
+
+To use a custom location:
 ```bash
-# This command will be available once the crate is published to crates.io
-cargo install rustash
-```
-
-### Database Setup
-
-Rustash uses SQLite as its default database backend. The database is automatically created the first time you run the application.
-
-By default, the database is stored in:
-- Linux/macOS: `~/.config/rustash/rustash.db`
-- Windows: `%APPDATA%\rustash\rustash.db`
-
-You can customize the database location by setting the `DATABASE_URL` environment variable:
-
-```bash
-# Example: Custom database location
 export DATABASE_URL=~/.local/share/rustash/snippets.db
+# Then run your rustash commands
 ```
 
-## 2. Quick Start
+## 🚀 Quick Start
 
 ### Your First Snippet
 
-Let's add and use your first snippet:
+1. **Add a snippet**:
+   ```bash
+   rustash add "Docker Run PostgreSQL" \
+     "docker run --name postgres -e POSTGRES_PASSWORD=secret -p 5432:5432 -d postgres" \
+     --tags docker,postgres
+   ```
+
+2. **List your snippets**:
+   ```bash
+   rustash list
+   ```
+
+3. **Use a snippet** (copies to clipboard):
+   ```bash
+   rustash use 1
+   ```
+
+### Using Variables in Snippets
+
+Create templates with placeholders:
 
 ```bash
-# Add a simple "Hello World" snippet with a placeholder
-rustash add "Hello World" "echo 'Hello, {{name}}!'" --tags example,greeting
+# Add a snippet with placeholders
+rustash add "SSH Command" "ssh {{user}}@{{host}} -p {{port:22}}" --tags ssh
 
-# List your snippets
-rustash list --filter "Hello"
+# Use with variables
+rustash use 2 --var user=admin --var host=example.com
 
-# Use the snippet, providing a value for the 'name' placeholder
-rustash use 1 --var name=Alice
-```
-
-### Understanding Placeholders and Variables
-
-Rustash supports dynamic placeholders in your snippets using the `{{variable}}` syntax:
-
-**Example Snippet:**
-```bash
-# Add a snippet with placeholders for user and host
-rustash add "SSH Command" "ssh {{user}}@{{host}}" --tags ssh,network
-
-# Use with variables provided on the command line
-rustash use 2 --var user=admin --var host=example.com # Result: ssh admin@example.com
-
-# Use in interactive mode to be prompted for missing variables
+# Or use interactive mode
 rustash use 2 --interactive
 ```
 
-## 3. Core Concepts
+## 📚 Core Concepts
 
-*   **Snippets**: A piece of text with a `title`, `content`, and one or more `tags`.
-*   **Placeholders**: Dynamic variables in your snippet's content, written as `{{variable_name}}`. These are replaced with values when you use the `rustash use` command.
-*   **Search**: Rustash uses a powerful full-text search engine (FTS5) to quickly find snippets by title, content, or tags.
+- **Snippets**: Reusable pieces of text with a title and optional tags
+- **Placeholders**: Dynamic variables (`{{name}}`) that can be filled in when using a snippet
+- **Tags**: Labels for organizing and filtering snippets
+- **Search**: Find snippets using full-text search or tag filtering
 
-## 4. Command Reference
+## ⌨️ Command Reference
 
-### Adding Snippets
+### Add Snippets
 
 ```bash
-# Add a snippet with a title, content, and comma-separated tags
+# Basic usage
 rustash add "Title" "Content" --tags tag1,tag2
 
-# Read content from stdin
-cat script.sh | rustash add "My Script" --stdin --tags script
+# From clipboard (macOS)
+pbpaste | rustash add "From Clipboard" --stdin --tags clipboard
+
+# With description
+rustash add "Title" "Content" --description "Detailed description" --tags docs
 ```
 
-### Listing Snippets
+### Find Snippets
 
 ```bash
 # List all snippets
 rustash list
 
-# Full-text search for "database" in title or content
-rustash list --filter "search term"
+# Search by content or title
+rustash list --filter "docker compose"
 
 # Filter by tag
 rustash list --tag git
 
-# Interactively search and select a snippet using a fuzzy finder
+# Interactive search (requires fzf)
 rustash list --interactive
 
-# Change the output format
-rustash list --format compact # Other formats: detailed, json, ids
+# Output formats
+rustash list --format json    # JSON output
+rustash list --format compact # Compact list
 ```
 
-### Using Snippets
+### Use Snippets
 
 ```bash
-# Basic usage
+# Copy to clipboard (default)
 rustash use 1
 
-# With one or more variables
-rustash use 1 --var key1=value1 --var key2=value2
-
-# Interactive mode
-rustash use 1 --interactive
-
-# Print to stdout instead of copying to clipboard
+# Print to terminal
 rustash use 1 --print-only
+
+# Fill placeholders
+rustash use 1 --var name=value
+
+# Interactive mode (prompts for missing variables)
+rustash use 1 --interactive
 ```
 
-### Advanced Search
+### Manage Snippets
 
-Rustash's `--filter` flag uses SQLite's FTS5 engine, which supports advanced query syntax:
+```bash
+# Edit a snippet (opens $EDITOR)
+rustash edit 1
 
-*   `OR`: `rustash list --filter "postgres OR mysql"`
-*   `AND`: `rustash list --filter "backup AND NOT nightly"`
-*   `"phrase search"`: `rustash list --filter '\"database migration\"'`
-*   `prefix*`: `rustash list --filter "data*"`
+# Delete a snippet
+rustash delete 1
 
-> **Note**: `AND`, `OR`, and `NOT` must be uppercase.
+# Export snippets to JSON
+rustash export > snippets.json
 
-## 5. Security Best Practices
+# Import from JSON
+rustash import < snippets.json
+```
 
-### Snippet Security
+## 🔒 Security Best Practices
 
-- **Review Before Execution**: Rustash does not execute snippets automatically. Always review commands before running them.
-- **Avoid Storing Secrets**: Avoid storing passwords, API keys, or other sensitive data directly in snippets.
-- **Environment Variables**: Use environment variables for sensitive information:
+### Safe Snippet Management
+
+- **Never store secrets** directly in snippets
+- Use environment variables for sensitive data:
   ```bash
   # Instead of:
   # rustash add "DB Connect" "psql -U myuser -p mypassword"
-
-  # Use placeholders and provide values from environment variables:
-  # rustash add "DB Connect" "psql -U {{db_user}} -p {{db_pass}}"
-  # export PGPASSWORD=$DB_PASSWORD
-  # rustash use <id> --var db_user=$DB_USER --var db_pass=$DB_PASSWORD
+  
+  # Do this:
+  rustash add "DB Connect" "psql -U {{db_user}} -p {{db_pass}}"
+  # Then provide values when using:
+  # DB_USER=user DB_PASS=pass rustash use X --var db_user=$DB_USER --var db_pass=$DB_PASS
   ```
 
 ### Database Security
 
-- **File Permissions**: The database file should only be readable by your user account.
-- **Backup**: Regularly back up your snippets database.
-- **Encryption**: Consider using filesystem-level encryption for the directory containing the database.
+- The database is stored in your user directory with restricted permissions
+- Back up your database regularly:
+  ```bash
+  cp ~/.config/rustash/rustash.db ~/rustash-backup-$(date +%Y%m%d).db
+  ```
+- For sensitive data, consider using encrypted storage or a secrets manager
 
-### Environment Variables
-
-- **DATABASE_URL**: Be cautious when setting a custom database path. Avoid paths to important system files.
-- **Recommendation**: Use the default location (`~/.config/rustash/rustash.db`) unless you have a specific reason to change it.
-
-## 6. Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-#### Database Connection Issues
-
+#### Database Connection Error
 ```
-Error: Failed to connect to database: DatabaseError(..., "unable to open database file")
+Error: Failed to connect to database: unable to open database file
 ```
-- **Solution**: Ensure the directory exists and is writable:
-  ```bash
-  mkdir -p ~/.config/rustash
-  chmod 700 ~/.config/rustash
-  ```
+**Solution:**
+```bash
+mkdir -p ~/.config/rustash
+chmod 700 ~/.config/rustash
+```
 
-#### Migration Errors
+#### Missing Dependencies
+```
+error: linker 'cc' not found
+```
+**Solution:** Install your system's C compiler:
+- **macOS**: `xcode-select --install`
+- **Ubuntu/Debian**: `sudo apt install build-essential`
+- **Fedora**: `sudo dnf install gcc`
+
+## ❓ Frequently Asked Questions
+
+### How do I change the default editor?
+Set the `EDITOR` environment variable:
+```bash
+export EDITOR=nano  # or code, vim, etc.
+```
+
+### Can I use Rustash with multiple databases?
+Yes! Set the `DATABASE_URL` environment variable to switch between databases:
+```bash
+# Work with a different database
+export DATABASE_URL=~/work/snippets.db
+rustash list
+```
+
+### How do I upgrade Rustash?
+```bash
+# If installed via cargo
+cargo install --force rustash
+
+# If installed from source
+cd /path/to/rustash
+git pull
+cargo install --path .
+```
+
+### How do I completely remove Rustash?
+```bash
+# Uninstall the binary
+cargo uninstall rustash
+
+# Remove configuration and database (be careful!)
+rm -rf ~/.config/rustash
+```
 
 ```
 Error: DatabaseError(..., "no such table: __diesel_schema_migrations")

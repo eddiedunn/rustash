@@ -5,6 +5,13 @@ use anyhow::{Context, Result};
 use rustash_core::database::{create_connection_pool, DbPool, DbConnectionGuard};
 use std::path::PathBuf;
 use std::sync::Arc;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, PooledConnection};
+
+// This will include the migrations at compile time
+// The migrations are in the rustash-core crate
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../rustash-core/migrations");
 
 lazy_static::lazy_static! {
     static ref DB_POOL: std::sync::Mutex<Option<Arc<DbPool>>> = std::sync::Mutex::new(None);
@@ -48,6 +55,15 @@ pub fn init(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
     }
     
     let pool = Arc::new(create_connection_pool()?);
+    
+    // Run migrations
+    {
+        let conn = &mut pool.get()?;
+        conn.run_pending_migrations(MIGRATIONS)
+            .map_err(|e| anyhow::anyhow!("Failed to run migrations: {}", e))?;
+        log::info!("Successfully ran database migrations");
+    }
+    
     *DB_POOL.lock().unwrap() = Some(pool);
     
     Ok(())

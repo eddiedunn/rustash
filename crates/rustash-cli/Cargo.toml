@@ -48,6 +48,15 @@ dirs = { workspace = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
+
+# Logging
+log = "0.4"
+
+# Database
+# Note: Must match the versions used in rustash-core
+r2d2 = { workspace = true }
+diesel = { workspace = true, features = ["r2d2", "chrono", "uuid"] }
+diesel_migrations = { workspace = true }
 serde_json = { workspace = true }
 
 # Regular expressions
@@ -63,6 +72,9 @@ diesel_migrations = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 proptest = { workspace = true }
+assert_matches = "1.5.0"
+# GUI testing temporarily disabled due to egui_test not being available on crates.io
+serial_test = "2.0"
 
 # Time handling
 chrono = { workspace = true, features = ["serde"] }

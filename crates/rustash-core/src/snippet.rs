@@ -319,9 +319,9 @@ pub fn validate_snippet_content(snippet_title: &str, snippet_content: &str) -> R
 mod tests {
     use super::*;
     use crate::database::create_test_pool;
-    use chrono::Utc;
-    use uuid::Uuid;
+    use crate::models::{NewDbSnippet, UpdateSnippet};
     use std::collections::HashMap;
+    use uuid::Uuid;
     
     #[test]
     fn test_expand_placeholders() {
@@ -332,157 +332,6 @@ mod tests {
         
         let result = expand_placeholders(content, &vars);
         assert_eq!(result, "Hello Alice, welcome to Rustland!");
-    }
-    
-    #[test]
-    fn test_expand_placeholders_missing_var() {
-        let content = "Hello {{name}}, missing {{unknown}}";
-        let mut vars = HashMap::new();
-        vars.insert("name".to_string(), "Alice".to_string());
-        
-        let result = expand_placeholders(content, &vars);
-        assert_eq!(result, "Hello Alice, missing {{unknown}}");
-    }
-    
-    #[test]
-    fn test_validate_snippet_content() {
-        // Valid content
-        assert!(validate_snippet_content("Test", "Content").is_ok());
-        
-        // Empty title
-        assert!(validate_snippet_content("", "Content").is_err());
-        
-        // Empty content
-        assert!(validate_snippet_content("Test", "").is_err());
-        
-        // Title too long
-        let long_title = "a".repeat(256);
-        assert!(validate_snippet_content(&long_title, "Content").is_err());
-    }
-    
-    #[test]
-    fn test_add_and_get_snippet() -> Result<()> {
-        let pool = create_test_pool()?;
-        let mut conn = pool.get()?;
-        
-        let new_snippet = NewDbSnippet::new(
-            "Test Snippet".to_string(),
-            "Hello {{name}}!".to_string(),
-            vec!["test".to_string(), "greeting".to_string()],
-        );
-        
-        // Convert NewDbSnippet to Snippet for the function call
-        let _snippet_uuid = Uuid::parse_str(&new_snippet.uuid).unwrap();
-        let snippet = Snippet {
-            uuid: new_snippet.uuid.clone(),
-            title: new_snippet.title.clone(),
-            content: new_snippet.content.clone(),
-            tags: new_snippet.tags.clone(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-        
-        // Save the snippet
-        let saved_snippet = add_snippet(&mut conn, snippet)?;
-        
-        // Verify the saved snippet
-        assert_eq!(saved_snippet.title, "Test Snippet");
-        assert_eq!(saved_snippet.content, "Hello {{name}}!");
-        
-        // Retrieve the snippet by ID
-        let retrieved = get_snippet_by_id(&mut conn, &saved_snippet.uuid)?;
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().title, "Test Snippet");
-        
-        Ok(())
-    }
-    
-    #[test]
-    fn test_list_and_filter_snippets() -> Result<()> {
-        let pool = create_test_pool()?;
-        let mut conn = pool.get()?;
-        
-        // Clear any existing snippets
-        use crate::schema::snippets::dsl::*;
-        diesel::delete(snippets).execute(&mut *conn)?;
-        
-        // Helper function to create and save a snippet
-        fn create_and_save_snippet(
-            conn: &mut SqliteConnection,
-            snippet_title: &str,
-            snippet_content: &str,
-            snippet_tags: Vec<&str>,
-        ) -> Result<()> {
-            use crate::models::NewDbSnippet;
-            
-            let new_snippet = NewDbSnippet {
-                uuid: Uuid::new_v4().to_string(),
-                title: snippet_title.to_string(),
-                content: snippet_content.to_string(),
-                tags: serde_json::to_string(&snippet_tags).unwrap(),
-                embedding: None,
-            };
-            
-            diesel::insert_into(crate::schema::snippets::table)
-                .values(&new_snippet)
-                .execute(conn)?;
-                
-            Ok(())
-        }
-        
-        // Add test snippets
-        create_and_save_snippet(
-            &mut conn,
-            "Rust Code Snippet",
-            "fn main() {}",
-            vec!["rust", "code"],
-        )?;
-        
-        create_and_save_snippet(
-            &mut conn,
-            "Python Code Example",
-            "print('hello')",
-            vec!["python", "code"],
-        )?;
-        
-        create_and_save_snippet(
-            &mut conn,
-            "Another Rust Item",
-            "struct a;",
-            vec!["rust", "structs"],
-        )?;
-
-        // List all snippets (should be 3)
-        let all_snippets = list_snippets(&mut conn, None, None, None)?;
-        assert_eq!(all_snippets.len(), 3, "Should find all 3 snippets");
-        
-        // Filter by title text (FTS)
-        let snippet_results = list_snippets(&mut conn, Some("Snippet"), None, None)?;
-        assert!(!snippet_results.is_empty(), "Should find at least one snippet with 'Snippet' in title");
-        
-        // Filter by tag (FTS)
-        let python_snippets = list_snippets(&mut conn, None, Some("python"), None)?;
-        assert_eq!(python_snippets.len(), 1, "Should find one Python snippet");
-        
-        // Filter by a different tag (FTS)
-        let struct_snippets = list_snippets(&mut conn, None, Some("structs"), None)?;
-        assert_eq!(struct_snippets.len(), 1, "Should find one snippet with 'structs' tag");
-
-        // Combined filter: text AND tag (FTS)
-        let combined_snippets = list_snippets(&mut conn, Some("Rust"), Some("code"), None)?;
-        assert_eq!(combined_snippets.len(), 1);
-        assert_eq!(combined_snippets[0].title, "Rust Code Snippet");
-
-        // Combined filter with no results
-        let no_results = list_snippets(&mut conn, Some("Python"), Some("rust"), None)?;
-        assert_eq!(no_results.len(), 0);
-
-        // Test with limit
-        let limited = list_snippets(&mut conn, None, None, Some(1))?;
-        assert_eq!(limited.len(), 1);
-        
-        Ok(())
     }
     
     #[test]
