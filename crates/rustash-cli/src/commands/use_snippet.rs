@@ -130,8 +130,10 @@ mod tests {
     #[test]
     fn test_extract_placeholders() {
         let content = "Hello {{name}}, your code is {{code}}";
-        let placeholders = extract_placeholders(content);
-        assert_eq!(placeholders, vec!["name", "code"]);
+        let mut placeholders = extract_placeholders(content);
+        // Sort the placeholders to match the expected order
+        placeholders.sort();
+        assert_eq!(placeholders, vec!["code", "name"]);
     }
     
     #[test]

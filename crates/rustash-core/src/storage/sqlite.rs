@@ -39,20 +39,40 @@ impl StorageBackend for SqliteBackend {
     async fn save(&self, item: &(dyn crate::memory::MemoryItem + Send + Sync)) -> Result<()> {
         use crate::schema::snippets::dsl::*;
         
-        let snippet = item
-            .as_any()
-            .downcast_ref::<Snippet>()
-            .ok_or_else(|| Error::other("Expected a Snippet"))?;
-
-        let new_snippet: NewDbSnippet = snippet.clone().into();
-        let mut conn = self.get_conn()?;
-
-        // Use the table name directly since we're using the dsl
-        diesel::insert_into(snippets)
-            .values(&new_snippet)
-            .execute(&mut *conn)?;
-
-        Ok(())
+        // Try to downcast to SnippetWithTags first
+        if let Some(snippet_with_tags) = item.as_any().downcast_ref::<crate::models::SnippetWithTags>() {
+            let snippet = Snippet {
+                uuid: snippet_with_tags.uuid.clone(),
+                title: snippet_with_tags.title.clone(),
+                content: snippet_with_tags.content.clone(),
+                tags: serde_json::to_string(&snippet_with_tags.tags).unwrap_or_else(|_| "[]".to_string()),
+                embedding: snippet_with_tags.embedding.clone(),
+                created_at: snippet_with_tags.created_at.naive_utc(),
+                updated_at: snippet_with_tags.updated_at.naive_utc(),
+            };
+            let new_snippet: NewDbSnippet = snippet.into();
+            let mut conn = self.get_conn()?;
+            
+            diesel::insert_into(snippets)
+                .values(&new_snippet)
+                .execute(&mut *conn)?;
+                
+            return Ok(());
+        }
+        
+        // Fall back to Snippet
+        if let Some(snippet) = item.as_any().downcast_ref::<Snippet>() {
+            let new_snippet: NewDbSnippet = snippet.clone().into();
+            let mut conn = self.get_conn()?;
+            
+            diesel::insert_into(snippets)
+                .values(&new_snippet)
+                .execute(&mut *conn)?;
+                
+            return Ok(());
+        }
+        
+        Err(Error::other("Expected a Snippet or SnippetWithTags"))
     }
 
     async fn get(&self, id: &Uuid) -> Result<Option<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
@@ -68,7 +88,8 @@ impl StorageBackend for SqliteBackend {
 
         Ok(db_snippet.map(|s| {
             let snippet: Snippet = s.into();
-            Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+            let snippet_with_tags: crate::models::SnippetWithTags = snippet.into();
+            Box::new(snippet_with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
         }))
     }
 
@@ -122,23 +143,20 @@ mod tests {
     pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations = embed_migrations!("migrations");
 
     async fn create_test_backend() -> SqliteBackend {
-        // Create a test pool
-        let db_pool = create_test_pool().expect("Failed to create test pool");
-        
-        // Get a connection from the pool to run migrations
-        let mut conn = db_pool.get().expect("Failed to get connection from pool");
-        
-        // Run migrations
-        conn.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
-        
-        // Extract the inner connection manager from the pool
+        // Create a test pool with an in-memory SQLite database
         let manager = ConnectionManager::<SqliteConnection>::new(":memory:");
         let pool = Pool::builder()
             .max_size(1) // We only need one connection for testing
             .build(manager)
             .expect("Failed to create test pool");
-            
-        // Create the backend with the new pool
+        
+        // Get a connection from the pool to run migrations
+        let mut conn = pool.get().expect("Failed to get connection from pool");
+        
+        // Run migrations on the same connection that will be used by the tests
+        conn.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
+        
+        // Create the backend with the same pool
         SqliteBackend::new(pool)
     }
 
