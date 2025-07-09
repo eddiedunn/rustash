@@ -3,19 +3,18 @@
 use super::StorageBackend;
 use crate::{
     database::DbPool,
-    error::{Error, Result},
-    models::Snippet,
+    error::Result,
+    models::{NewDbSnippet, Query, Snippet, SnippetWithTags},
 };
 use async_trait::async_trait;
-use diesel::{
-    prelude::*,
-    sql_query,
-    sql_types::Text,
-};
+use diesel::prelude::*;
+use crate::error::Error;
+use diesel::sql_query;
 use diesel_async::{
-    RunQueryDsl,
-    AsyncConnection,
+    pooled_connection::deadpool::Object,
+    AsyncDieselConnectionManager, AsyncSqliteConnection, RunQueryDsl,
 };
+use diesel::sqlite::SqliteRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -32,8 +31,8 @@ impl SqliteBackend {
     }
 
     /// Get a connection from the pool.
-    async fn get_conn(&self) -> Result<diesel_async::AsyncConnectionWrapper<diesel_async::AsyncSqliteConnection>> {
-        Ok(diesel_async::async_connection_wrapper::AsyncConnectionWrapper::from(self.pool.get().await?))
+    async fn get_conn(&self) -> Result<Object<AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
+        self.pool.get_async().await.map_err(Into::into)
     }
     
     /// Convert a database row to a Snippet
@@ -74,87 +73,92 @@ impl SqliteBackend {
 #[async_trait]
 impl StorageBackend for SqliteBackend {
     async fn save(&self, item: &(dyn crate::memory::MemoryItem + Send + Sync)) -> Result<()> {
-        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
         
         let snippet = item
             .as_any()
-            .downcast_ref::<Snippet>()
-            .ok_or_else(|| Error::other("Expected a Snippet"))?;
+            .downcast_ref::<SnippetWithTags>()
+            .ok_or_else(|| Error::other("Invalid item type"))?;
 
-        // Validate the UUID format
-        Uuid::parse_str(&snippet.uuid)
-            .map_err(|e| Error::other(format!("Invalid UUID format: {}", e)))?;
-            
-        // Validate tags JSON
-        let _: Vec<String> = serde_json::from_str(&snippet.tags)
-            .map_err(|e| Error::other(format!("Invalid tags format: {}", e)))?;
-            
-        let now = chrono::Utc::now().naive_utc();
+        let new_snippet = NewDbSnippet::new(
+            snippet.title.clone(),
+            snippet.content.clone(),
+            snippet.tags.clone(),
+        );
+
+        // Convert to the database model
+        let db_snippet: NewDbSnippet = new_snippet.into();
         
         let mut conn = self.get_conn().await?;
         
-        // Use parameterized query to prevent SQL injection
-        let query = r#"
-            INSERT INTO snippets (uuid, title, content, tags, embedding, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (uuid) DO UPDATE
-            SET title = excluded.title,
-                content = excluded.content,
-                tags = excluded.tags,
-                embedding = excluded.embedding,
-                updated_at = excluded.updated_at
-        "#;
-        
-        sql_query(query)
-            .bind::<Text, _>(&snippet.uuid)
-            .bind::<Text, _>(&snippet.title)
-            .bind::<Text, _>(&snippet.content)
-            .bind::<Text, _>(&snippet.tags)
-            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Binary>, _>(snippet.embedding.as_ref())
-            .bind::<diesel::sql_types::Timestamp, _>(now)
-            .bind::<diesel::sql_types::Timestamp, _>(now)
-            .execute(&mut conn)
+        // Check if the snippet already exists
+        let existing: Option<Snippet> = crate::schema::snippets::table
+            .filter(crate::schema::snippets::uuid.eq(&db_snippet.uuid))
+            .first(&mut *conn)
             .await
-            .map_err(|e| Error::other(format!("Failed to save snippet: {}", e)))?;
+            .optional()
+            .map_err(Error::from)?;
+
+        if let Some(_) = existing {
+            // Update existing snippet
+            diesel::update(crate::schema::snippets::table)
+                .filter(crate::schema::snippets::uuid.eq(&db_snippet.uuid))
+                .set((
+                    crate::schema::snippets::title.eq(&db_snippet.title),
+                    crate::schema::snippets::content.eq(&db_snippet.content),
+                    crate::schema::snippets::tags.eq(&db_snippet.tags),
+                    crate::schema::snippets::updated_at.eq(chrono::Utc::now().naive_utc()),
+                ))
+                .execute(&mut *conn)
+                .await
+                .map_err(Error::from)?;
+        } else {
+            // Insert new snippet
+            diesel::insert_into(crate::schema::snippets::table)
+                .values(&db_snippet)
+                .execute(&mut *conn)
+                .await
+                .map_err(Error::from)?;
+        }
+
+        Ok(())
     }
 
     async fn get(&self, id: &Uuid) -> Result<Option<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::prelude::*;
+        use crate::schema::snippets::dsl::*;
+        use diesel_async::RunQueryDsl;
         
         let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
         
-        let query = "SELECT * FROM snippets WHERE uuid = ?";
+        let result: Option<Snippet> = snippets
+            .filter(uuid.eq(&id_str))
+            .first::<Snippet>(&mut *conn)
+            .await
+            .optional()
+            .map_err(Error::from)?;
         
-        let result = sql_query(query)
-            .bind::<Text, _>(&id_str)
-            .get_result::<diesel::sqlite::SqliteRow>(&mut conn)
-            .await;
-            
         match result {
-            Ok(row) => {
-                let snippet = self.row_to_snippet(row)?;
-                Ok(Some(Box::new(snippet)))
-            },
-            Err(diesel::result::Error::NotFound) => Ok(None),
-            Err(e) => Err(Error::other(format!("Failed to get snippet: {}", e))),
+            Some(snippet) => {
+                let with_tags: SnippetWithTags = snippet.into();
+                Ok(Some(Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>))
+            }
+            None => Ok(None),
         }
     }
 
     async fn delete(&self, id: &Uuid) -> Result<()> {
-        use diesel::prelude::*;
+        use crate::schema::snippets::dsl::*;
+        use diesel_async::RunQueryDsl;
         
         let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
         
-        let query = "DELETE FROM snippets WHERE uuid = ?";
-        
-        sql_query(query)
-            .bind::<Text, _>(&id_str)
-            .execute(&mut conn)
+        diesel::delete(snippets.filter(uuid.eq(id_str)))
+            .execute(&mut *conn)
             .await
-            .map_err(|e| Error::other(format!("Failed to delete snippet: {}", e)))?;
-            
+            .map_err(Error::from)?;
+        
         Ok(())
     }
 
@@ -163,12 +167,8 @@ impl StorageBackend for SqliteBackend {
         _embedding: &[f32],
         _limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
-        // SQLite doesn't have built-in vector search capabilities
-        // This is a placeholder implementation that returns an empty vector
-        // In a real implementation, you might want to use an extension like SQLite VSS
-        // or implement a simple cosine similarity function in SQL
-        
-        // For now, we'll just return an empty vector
+        // Vector search is not supported in SQLite
+        // Return an empty vector for now
         Ok(Vec::new())
     }
     
@@ -185,75 +185,55 @@ impl StorageBackend for SqliteBackend {
     
     async fn query(
         &self,
-        query: &crate::models::Query,
+        query: &Query,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::prelude::*;
+        use crate::schema::snippets::dsl::*;
+        use diesel_async::RunQueryDsl;
+        
+        let query_text = query.text_filter.clone().unwrap_or_default();
+        let query_limit = query.limit.unwrap_or(10) as i64;
         
         let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
         
         // Start building the query
-        let mut sql = "SELECT * FROM snippets WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn diesel::query_builder::QueryFragment<diesel::sqlite::Sqlite> + Send>> = Vec::new();
+        let mut query_builder = snippets.into_boxed();
         
-        // Add tag filter if specified
-        if let Some(tags) = &query.tags {
-            if !tags.is_empty() {
-                // SQLite doesn't have a direct array contains operator like PostgreSQL
-                // So we'll use JSON functions to check if the tag exists in the tags array
-                sql.push_str(" AND (
-                    SELECT COUNT(*) FROM json_each(tags) 
-                    WHERE json_each.value IN (");
-                
-                let tag_placeholders: Vec<String> = (1..=tags.len())
-                    .map(|i| format!("?{}", i + params.len()))
-                    .collect();
-                    
-                sql.push_str(&tag_placeholders.join(", "));
-                sql.push_str(")
-                ) > 0");
-                
-                for tag in tags {
-                    params.push(Box::new(tag.clone()) as _);
-                }
-            }
+        // Apply text filter if provided
+        if !query_text.is_empty() {
+            query_builder = query_builder.filter(
+                title.like(format!("%{}%", query_text))
+                    .or(content.like(format!("%{}%", query_text)))
+                    .or(tags.like(format!("%{}%", query_text)))
+            );
         }
         
-        // Add text filter if specified
-        if let Some(text_filter) = &query.text_filter {
-            let search_term = format!("%{}%", text_filter);
-            sql.push_str(" AND (title LIKE ? OR content LIKE ?)");
-            params.push(Box::new(search_term.clone()) as _);
-            params.push(Box::new(search_term) as _);
-        }
+        // Apply sorting
+        query_builder = match query.sort_by.as_deref() {
+            Some("title") => query_builder.order(title.asc()),
+            Some("created_at") => query_builder.order(created_at.desc()),
+            Some("updated_at") => query_builder.order(updated_at.desc()),
+            _ => query_builder.order(created_at.desc()),
+        };
         
-        // Add ordering
-        sql.push_str(" ORDER BY created_at DESC");
-        
-        // Add limit if specified
-        if let Some(limit) = query.limit {
-            sql.push_str(&format!(" LIMIT {}", limit));
-        }
+        // Apply limit
+        query_builder = query_builder.limit(query_limit);
         
         // Execute the query
-        let mut query = sql_query(&sql);
-        
-        // Bind parameters
-        for param in params {
-            query = query.bind::<Text, _>(param);
-        }
-        
-        let rows = query
-            .load::<diesel::sqlite::SqliteRow>(&mut conn)
+        let results: Vec<Snippet> = query_builder
+            .load::<Snippet>(&mut *conn)
             .await
-            .map_err(|e| Error::other(format!("Failed to query snippets: {}", e)))?;
-            
-        for row in rows {
-            let snippet = self.row_to_snippet(row)?;
-            results.push(Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>);
-        }
+            .map_err(Error::from)?;
         
-        Ok(results)
+        // Convert to MemoryItems
+        let items = results
+            .into_iter()
+            .map(|s| {
+                let with_tags: SnippetWithTags = s.into();
+                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+            })
+            .collect();
+            
+        Ok(items)
     }
     
     async fn get_related(
@@ -261,71 +241,51 @@ impl StorageBackend for SqliteBackend {
         id: &Uuid,
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::prelude::*;
+        use crate::schema::{snippets, snippet_relations};
+        use diesel_async::RunQueryDsl;
         
         let id_str = id.to_string();
+        let rel_type = relation_type.map(|s| s.to_string());
+        
         let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
         
-        // First, check if the relations table exists
-        let table_exists: bool = sql_query(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='snippet_relations'"
-        )
-        .get_result::<bool>(&mut conn)
-        .await
-        .unwrap_or(false);
+        // First, get all related snippet IDs
+        let related_ids: Vec<String> = {
+            let mut query = snippet_relations::table
+                .filter(snippet_relations::from_id.eq(&id_str))
+                .select(snippet_relations::to_id)
+                .into_boxed();
+                
+            if let Some(ref rel_type) = rel_type {
+                query = query.filter(snippet_relations::relation_type.eq(rel_type));
+            }
+            
+            query.load::<String>(&mut *conn)
+                .await
+                .map_err(Error::from)?
+        };
         
-        if !table_exists {
+        if related_ids.is_empty() {
             return Ok(Vec::new());
         }
         
-        // Build the query based on whether we're filtering by relation type
-        let (sql, params) = if let Some(rel_type) = relation_type {
-            (
-                "
-                SELECT s.* FROM snippets s
-                JOIN snippet_relations r ON s.uuid = r.to_uuid
-                WHERE r.from_uuid = ? AND r.relation_type = ?
-                ORDER BY r.created_at DESC
-                ".to_string(),
-                vec![
-                    Box::new(id_str) as Box<dyn diesel::query_builder::QueryFragment<diesel::sqlite::Sqlite> + Send>,
-                    Box::new(rel_type.to_string()) as _
-                ]
-            )
-        } else {
-            (
-                "
-                SELECT s.* FROM snippets s
-                JOIN snippet_relations r ON s.uuid = r.to_uuid
-                WHERE r.from_uuid = ?
-                ORDER BY r.created_at DESC
-                ".to_string(),
-                vec![
-                    Box::new(id_str) as Box<dyn diesel::query_builder::QueryFragment<diesel::sqlite::Sqlite> + Send>
-                ]
-            )
-        };
-        
-        // Execute the query
-        let mut query = sql_query(&sql);
-        
-        // Bind parameters
-        for param in params {
-            query = query.bind::<Text, _>(param);
-        }
-        
-        let rows = query
-            .load::<diesel::sqlite::SqliteRow>(&mut conn)
+        // Then get the actual snippets
+        let results: Vec<Snippet> = snippets::table
+            .filter(snippets::uuid.eq_any(related_ids))
+            .load::<Snippet>(&mut *conn)
             .await
-            .map_err(|e| Error::other(format!("Failed to get related snippets: {}", e)))?;
+            .map_err(Error::from)?;
             
-        for row in rows {
-            let snippet = self.row_to_snippet(row)?;
-            results.push(Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>);
-        }
-        
-        Ok(results)
+        // Convert to MemoryItem
+        let items = results
+            .into_iter()
+            .map(|s| {
+                let with_tags: SnippetWithTags = s.into();
+                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+            })
+            .collect();
+            
+        Ok(items)
     }
 }
 

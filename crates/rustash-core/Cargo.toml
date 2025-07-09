@@ -15,7 +15,7 @@ categories.workspace = true
 diesel = { workspace = true, features = ["chrono", "serde_json", "uuid"] }
 
 # Database migrations with backend-specific features
-diesel_migrations = { workspace = true }
+diesel_migrations = { workspace = true, optional = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
@@ -41,6 +41,7 @@ cfg-if = "1.0"
 
 # Platform-specific paths
 home = "0.5"
+hnsw_rs = { version = "0.3", optional = true }
 
 # PostgreSQL backend dependencies
 bb8 = { version = "0.8.0", optional = true }
@@ -66,16 +67,24 @@ default = ["sqlite"]
 
 # SQLite backend
 sqlite = [
-    "diesel/sqlite",
-    "diesel-async/sqlite",
-    "bb8"
+    "diesel/sqlite", 
+    "diesel/r2d2",
+    "r2d2",
+    "libsqlite3-sys",
+    "diesel-async/sqlite"
 ]
 
 # PostgreSQL backend
 postgres = [
     "diesel/postgres",
     "bb8",
-    "diesel-async"
+    "bb8-postgres",
+    "tokio-postgres",
+    "diesel-async/postgres"
 ]
 
-# Vector search (experimental)vector-search = []
+# Vector search (experimental)
+vector-search = ["hnsw_rs"]
+
+# Database migrations
+migrations = ["diesel_migrations"]

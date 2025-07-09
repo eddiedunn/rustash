@@ -3,6 +3,7 @@
 use crate::memory::MemoryItem;
 use crate::schema::snippets;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use diesel::backend::Backend;
 use diesel::prelude::*;
 use diesel::sql_types::{Text, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -177,8 +178,14 @@ impl SnippetWithTags {
 }
 
 /// The main Snippet struct that implements MemoryItem
+use diesel::deserialize::{self, FromSql};
+use diesel::sql_types::{Binary, Nullable};
+use diesel::sqlite::Sqlite;
+use diesel::row::NamedRow;
+
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone)]
 #[diesel(table_name = crate::schema::snippets)]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 pub struct Snippet {
     pub uuid: String,
     pub title: String,
@@ -187,6 +194,44 @@ pub struct Snippet {
     pub embedding: Option<Vec<u8>>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+impl<DB> QueryableByName<DB> for Snippet
+where
+    DB: Backend,
+    String: FromSql<Text, DB>,
+    NaiveDateTime: FromSql<Timestamp, DB>,
+    Option<Vec<u8>>: FromSql<Nullable<Binary>, DB>,
+{
+    fn build<'a>(row: &impl NamedRow<'a, DB>) -> deserialize::Result<Self> {
+        let uuid = NamedRow::get::<Text, String>(row, "uuid")?;
+        let title = NamedRow::get::<Text, String>(row, "title")?;
+        let content = NamedRow::get::<Text, String>(row, "content")?;
+        let tags = NamedRow::get::<Text, String>(row, "tags")?;
+        let embedding = NamedRow::get::<Nullable<Binary>, Option<Vec<u8>>>(row, "embedding")?;
+        let created_at = NamedRow::get::<Timestamp, NaiveDateTime>(row, "created_at")?;
+        let updated_at = NamedRow::get::<Timestamp, NaiveDateTime>(row, "updated_at")?;
+
+        // Validate the UUID format
+        Uuid::parse_str(&uuid).map_err(|e| {
+            Box::new(diesel::result::Error::DeserializationError(Box::new(e)))
+        })?;
+
+        // Validate the tags JSON
+        let _: Vec<String> = serde_json::from_str(&tags).map_err(|e| {
+            Box::new(diesel::result::Error::DeserializationError(Box::new(e)))
+        })?;
+
+        Ok(Self {
+            uuid,
+            title,
+            content,
+            tags,
+            embedding,
+            created_at,
+            updated_at,
+        })
+    }
 }
 
 impl Snippet {

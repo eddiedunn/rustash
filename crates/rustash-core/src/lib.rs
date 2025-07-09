@@ -141,10 +141,10 @@ pub async fn create_backend(database_url: &str) -> Result<Box<dyn StorageBackend
             use diesel::connection::SimpleConnection;
             
             // Create a new database pool
-            let pool = database::create_pool(database_url).await?;
-
+            let pool = database::DbPool::new(database_url).await?;
+            
             // Initialize the database schema if needed
-            let mut conn = database::DbConnection::from(pool.get().await?);
+            let mut conn = pool.get_async().await?;
             
             conn.batch_execute(
                 r#"
