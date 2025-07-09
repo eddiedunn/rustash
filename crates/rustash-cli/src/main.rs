@@ -3,14 +3,14 @@
 mod commands;
 mod db;
 mod fuzzy;
-mod utils;
 #[cfg(feature = "gui")]
 mod gui;
+mod utils;
 
-use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::{add::AddCommand, list::ListCommand, use_snippet::UseCommand};
+use std::path::PathBuf;
 
 /// Supported database backends
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
@@ -37,8 +37,8 @@ impl std::fmt::Display for DatabaseBackend {
 }
 
 /// Initialize the database connection pool
-fn init_db(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
-    db::init(backend, db_path)
+async fn init_db(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
+    db::init(backend, db_path).await
 }
 
 #[derive(Parser)]
@@ -70,15 +70,16 @@ pub enum Commands {
     Use(UseCommand),
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Initialize the database connection pool with the specified backend
-    init_db(cli.db_backend, cli.db_path)?;
+    init_db(cli.db_backend, cli.db_path).await?;
 
     match cli.command {
-        Commands::Add(cmd) => cmd.execute(),
-        Commands::List(cmd) => cmd.execute(),
-        Commands::Use(cmd) => cmd.execute(),
+        Commands::Add(cmd) => cmd.execute().await,
+        Commands::List(cmd) => cmd.execute().await,
+        Commands::Use(cmd) => cmd.execute().await,
     }
 }

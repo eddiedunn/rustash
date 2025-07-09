@@ -36,7 +36,7 @@ impl PostgresBackend {
 
     /// Get a connection from the pool.
     async fn get_conn(&self) -> Result<AsyncConnectionWrapper<AsyncPgConnection>> {
-        self.pool.get_async().await
+        Ok(AsyncConnectionWrapper::from(self.pool.get().await?))
     }
 
     /// Convert a database row to a Snippet
@@ -389,7 +389,7 @@ mod tests {
         let pool = create_pool(database_url).await?;
         
         // Get a connection from the pool to run migrations
-        let mut conn = pool.get_async().await?;
+        let mut conn = pool.get().await?;
         
         // Run migrations on the same connection that will be used by the tests
         conn.run_pending_migrations(MIGRATIONS)

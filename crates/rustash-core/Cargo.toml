@@ -44,13 +44,10 @@ home = "0.5"
 
 # PostgreSQL backend dependencies
 bb8 = { version = "0.8.0", optional = true }
-bb8-postgres = { version = "0.8.0", optional = true }
-tokio-postgres = { version = "0.7.13", features = ["with-chrono-0_4"], optional = true }
-diesel-async = { version = "0.5.0", features = ["postgres", "bb8"], optional = true }
+diesel-async = { version = "0.5.0", features = ["postgres", "sqlite", "bb8"], optional = true }
 
 # SQLite backend dependencies
 [target.'cfg(feature = "sqlite")'.dependencies]
-r2d2 = { version = "0.8", optional = true }
 libsqlite3-sys = { version = "0.30.0", features = ["bundled"], optional = true }
 
 # Vector search (commented out due to build issues)
@@ -69,19 +66,16 @@ default = ["sqlite"]
 
 # SQLite backend
 sqlite = [
-    "diesel/sqlite", 
-    "r2d2",
-    "diesel-async/sqlite"
+    "diesel/sqlite",
+    "diesel-async/sqlite",
+    "bb8"
 ]
 
 # PostgreSQL backend
 postgres = [
     "diesel/postgres",
     "bb8",
-    "bb8-postgres",
-    "tokio-postgres",
     "diesel-async"
 ]
 
-# Vector search (experimental)
-vector-search = []
+# Vector search (experimental)vector-search = []

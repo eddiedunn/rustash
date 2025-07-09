@@ -1,7 +1,7 @@
 //! Add snippet command
 
-use anyhow::Result;
 use crate::db;
+use anyhow::Result;
 use clap::Args;
 use rustash_core::{add_snippet, models::Snippet};
 use uuid::Uuid;
@@ -30,18 +30,18 @@ pub struct AddCommand {
 }
 
 impl AddCommand {
-    pub fn execute(self) -> Result<()> {
+    pub async fn execute(self) -> Result<()> {
         // If we're reading from stdin, use CLI mode
         if self.stdin {
-            return self.execute_cli();
+            return self.execute_cli().await;
         }
-        
+
         // If both title and content are provided, use CLI mode
         if self.title.is_some() && self.content.is_some() {
-            self.execute_cli()
+            self.execute_cli().await
         } else if self.title.is_none() && self.content.is_none() {
             // If neither is provided, launch the GUI
-            self.launch_gui()
+            self.launch_gui().await
         } else {
             // If only one is provided, show an error
             anyhow::bail!("Both --title and --content must be provided for command-line mode")
@@ -49,7 +49,7 @@ impl AddCommand {
     }
 
     /// Handles the command-line logic for adding a snippet.
-    fn execute_cli(self) -> Result<()> {
+    async fn execute_cli(self) -> Result<()> {
         let title = self.title.unwrap_or_default();
         let content = if self.stdin {
             use std::io::{self, Read};
@@ -67,10 +67,14 @@ impl AddCommand {
             anyhow::bail!("Content cannot be empty for CLI usage.");
         }
 
-        let mut conn = db::get_connection()?;
-        let new_snippet = Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
+        let mut conn = db::get_connection().await?;
+        let new_snippet =
+            Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
         let snippet = add_snippet(&mut *conn, new_snippet)?;
-        println!("✓ Added snippet '{}' with ID: {}", snippet.title, snippet.uuid);
+        println!(
+            "✓ Added snippet '{}' with ID: {}",
+            snippet.title, snippet.uuid
+        );
 
         // The original `tags` is a JSON string, so we need to parse it to display nicely.
         let snippet_tags: Vec<String> = serde_json::from_str(&snippet.tags).unwrap_or_default();
@@ -83,14 +87,14 @@ impl AddCommand {
 
     /// Launches the GUI. This function is only compiled if the 'gui' feature is enabled.
     #[cfg(feature = "gui")]
-    fn launch_gui(&self) -> Result<()> {
+    async fn launch_gui(&self) -> Result<()> {
         println!("No arguments provided. Launching GUI to add snippet...");
-        
+
         // Launch the GUI window and wait for it to close.
         // It returns data for the new snippet if the user saved it.
         if let Some(new_snippet_data) = gui::show_add_window()? {
             // The GUI returns the data; the CLI is responsible for saving it.
-            let mut conn = db::get_connection()?;
+            let mut conn = db::get_connection().await?;
             let snippet_to_add = Snippet::with_uuid(
                 Uuid::new_v4(),
                 new_snippet_data.title,
@@ -107,7 +111,9 @@ impl AddCommand {
 
     /// Fallback function if the 'gui' feature is disabled at compile time.
     #[cfg(not(feature = "gui"))]
-    fn launch_gui(&self) -> Result<()> {
-        anyhow::bail!("No arguments provided. To use the GUI, please compile with the 'gui' feature.")
+    async fn launch_gui(&self) -> Result<()> {
+        anyhow::bail!(
+            "No arguments provided. To use the GUI, please compile with the 'gui' feature."
+        )
     }
 }

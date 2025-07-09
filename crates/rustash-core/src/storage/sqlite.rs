@@ -33,7 +33,7 @@ impl SqliteBackend {
 
     /// Get a connection from the pool.
     async fn get_conn(&self) -> Result<diesel_async::AsyncConnectionWrapper<diesel_async::AsyncSqliteConnection>> {
-        self.pool.get_async().await
+        Ok(diesel_async::async_connection_wrapper::AsyncConnectionWrapper::from(self.pool.get().await?))
     }
     
     /// Convert a database row to a Snippet
@@ -352,7 +352,7 @@ mod tests {
         let pool = create_pool(database_url).await.expect("Failed to create test pool");
         
         // Get a connection from the pool to run migrations
-        let mut conn = pool.get_async().await.expect("Failed to get connection from pool");
+        let mut conn = pool.get().await.expect("Failed to get connection from pool");
         
         // Run migrations on the same connection that will be used by the tests
         conn.run_pending_migrations(MIGRATIONS)
