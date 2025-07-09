@@ -1,8 +1,8 @@
 //! Use snippet command
 
-use crate::utils::copy_to_clipboard;
 use crate::db;
-use anyhow::{Result, Context};
+use crate::utils::copy_to_clipboard;
+use anyhow::{Context, Result};
 use clap::Args;
 use dialoguer::Input;
 use regex::Regex;
@@ -35,13 +35,15 @@ pub struct UseCommand {
 }
 
 impl UseCommand {
-    pub fn execute(self) -> Result<()> {
-        let mut conn = db::get_connection()?;
+    pub async fn execute(self) -> Result<()> {
+        let mut conn = db::get_connection().await?;
 
         // Parse UUID and get the snippet
-        let _snippet_uuid = self.uuid.parse::<Uuid>()
+        let _snippet_uuid = self
+            .uuid
+            .parse::<Uuid>()
             .with_context(|| format!("Invalid UUID: {}", self.uuid))?;
-            
+
         let snippet = get_snippet_by_id(&mut *conn, &self.uuid)?
             .ok_or_else(|| anyhow::anyhow!("Snippet with UUID {} not found", self.uuid))?;
 
@@ -111,12 +113,13 @@ fn parse_variable(s: &str) -> Result<(String, String), String> {
 fn extract_placeholders(content: &str) -> Vec<String> {
     // Use a regex to find all occurrences of {{variable_name}}
     let re = Regex::new(r"\{\{\s*(\w+)\s*\}\}").unwrap();
-    
+
     // Collect all captured variable names
-    let mut placeholders = re.captures_iter(content)
+    let mut placeholders = re
+        .captures_iter(content)
         .map(|cap| cap[1].to_string())
         .collect::<Vec<_>>();
-    
+
     // Deduplicate and sort for consistent order
     placeholders.sort();
     placeholders.dedup();
@@ -135,27 +138,27 @@ mod tests {
         placeholders.sort();
         assert_eq!(placeholders, vec!["code", "name"]);
     }
-    
+
     #[test]
     fn test_use_command_with_uuid() {
         // This is a test to verify the command can be created with a UUID
         use clap::{Parser, Subcommand};
-        
+
         #[derive(Parser)]
         struct TestApp {
             #[command(subcommand)]
             command: Commands,
         }
-        
+
         #[derive(Subcommand)]
         enum Commands {
             Use(UseCommand),
         }
-        
+
         // Test with a valid UUID
         let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
         let args = ["rustash", "use", uuid_str];
-        
+
         let app = TestApp::parse_from(args.iter());
         if let Commands::Use(cmd) = &app.command {
             assert_eq!(cmd.uuid, uuid_str);

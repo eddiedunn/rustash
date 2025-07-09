@@ -35,8 +35,8 @@ pub struct ListCommand {
 }
 
 impl ListCommand {
-    pub fn execute(self) -> Result<()> {
-        let mut conn = db::get_connection()?;
+    pub async fn execute(self) -> Result<()> {
+        let mut conn = db::get_connection().await?;
 
         // Get snippets with filtering and searching
         let snippets = list_snippets_with_tags(
