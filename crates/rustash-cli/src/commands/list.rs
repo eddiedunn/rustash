@@ -36,15 +36,16 @@ pub struct ListCommand {
 
 impl ListCommand {
     pub async fn execute(self) -> Result<()> {
-        let mut conn = db::get_connection().await?;
+        let pool = db::get_pool().await?;
 
         // Get snippets with filtering and searching
         let snippets = list_snippets_with_tags(
-            &mut *conn,
+            &pool,
             self.filter.as_deref(),
             self.tag.as_deref(),
             Some(self.limit),
-        )?;
+        )
+        .await?;
 
         if snippets.is_empty() {
             println!("No snippets found.");

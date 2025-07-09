@@ -79,3 +79,12 @@ pub async fn get_connection() -> anyhow::Result<DbConnection> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     Ok(DbConnection::from(conn))
 }
+
+/// Get a clone of the global connection pool
+pub async fn get_pool() -> anyhow::Result<Arc<DbPool>> {
+    let pool_guard = DB_POOL.lock().unwrap();
+    let pool = pool_guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Database pool not initialized"))?;
+    Ok(pool.clone())
+}

@@ -36,7 +36,7 @@ pub struct UseCommand {
 
 impl UseCommand {
     pub async fn execute(self) -> Result<()> {
-        let mut conn = db::get_connection().await?;
+        let pool = db::get_pool().await?;
 
         // Parse UUID and get the snippet
         let _snippet_uuid = self
@@ -44,7 +44,8 @@ impl UseCommand {
             .parse::<Uuid>()
             .with_context(|| format!("Invalid UUID: {}", self.uuid))?;
 
-        let snippet = get_snippet_by_id(&mut *conn, &self.uuid)?
+        let snippet = get_snippet_by_id(&pool, &self.uuid)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Snippet with UUID {} not found", self.uuid))?;
 
         let snippet_with_tags = SnippetWithTags::from(snippet);
