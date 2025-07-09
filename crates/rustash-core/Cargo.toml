@@ -45,9 +45,13 @@ hnsw_rs = { version = "0.3", optional = true }
 
 # PostgreSQL backend dependencies
 bb8 = { version = "0.8.0", optional = true }
+bb8-postgres = { version = "0.8.0", optional = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
 diesel-async = { version = "0.5.0", features = ["postgres", "sqlite", "bb8"], optional = true }
 
 # SQLite backend dependencies
+r2d2 = { version = "0.8", optional = true }
+
 [target.'cfg(feature = "sqlite")'.dependencies]
 libsqlite3-sys = { version = "0.30.0", features = ["bundled"], optional = true }
 
