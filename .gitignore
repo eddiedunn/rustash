@@ -87,6 +87,9 @@ build/
 coverage/
 *.profraw
 
+# Ignore backup migrations directories
+migrations_backup_*
+
 # LLVM coverage mapping files
 *.profdata
 *.profdata.*
