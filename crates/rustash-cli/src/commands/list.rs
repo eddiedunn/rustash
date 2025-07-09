@@ -1,11 +1,11 @@
 //! List snippets command
 
-use crate::db;
 use crate::fuzzy::fuzzy_select_snippet;
 use crate::utils::format_snippet_list;
 use anyhow::Result;
 use clap::Args;
-use rustash_core::list_snippets_with_tags;
+use rustash_core::{database::DbPool, list_snippets_with_tags};
+use std::sync::Arc;
 
 #[derive(Args)]
 pub struct ListCommand {
@@ -35,9 +35,7 @@ pub struct ListCommand {
 }
 
 impl ListCommand {
-    pub async fn execute(self) -> Result<()> {
-        let pool = db::get_pool().await?;
-
+    pub async fn execute(self, pool: Arc<DbPool>) -> Result<()> {
         // Get snippets with filtering and searching
         let snippets = list_snippets_with_tags(
             &pool,

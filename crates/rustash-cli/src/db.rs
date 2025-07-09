@@ -2,19 +2,11 @@
 
 use crate::DatabaseBackend;
 use anyhow::{Context, Result};
-use diesel::prelude::*;
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use rustash_core::database::{DbConnection, DbPool, create_connection_pool};
+use rustash_core::database::{self, DbConnection, DbPool};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-// This will include the migrations at compile time
-// The migrations are in the rustash-core crate
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../rustash-core/migrations");
-
-lazy_static::lazy_static! {
-    static ref DB_POOL: std::sync::Mutex<Option<Arc<DbPool>>> = std::sync::Mutex::new(None);
-}
+static DB_POOL: tokio::sync::OnceCell<Arc<DbPool>> = tokio::sync::OnceCell::const_new();
 
 /// Initialize the database connection pool with the specified backend
 pub async fn init(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
@@ -42,49 +34,28 @@ pub async fn init(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<
         }
     };
 
-    // Set the DATABASE_URL environment variable for diesel_cli compatibility
-    // This is unsafe because it's not thread-safe, but it's acceptable here because:
-    // 1. It's called once at application startup
-    // 2. It's before any threads are spawned
-    // 3. The value is constant for the lifetime of the application
-    unsafe {
-        std::env::set_var("DATABASE_URL", &database_url);
-    }
+    let pool = Arc::new(DbPool::new(&database_url).await?);
 
-    let pool = Arc::new(create_connection_pool().await?);
+    database::run_migrations(&pool).await?;
 
-    // Run migrations
-    {
-        let mut conn = DbConnection::from(pool.get().await?);
-        conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| anyhow::anyhow!("Failed to run migrations: {}", e))?;
-        log::info!("Successfully ran database migrations");
-    }
-
-    *DB_POOL.lock().unwrap() = Some(pool);
+    DB_POOL
+        .set(pool)
+        .map_err(|_| anyhow::anyhow!("Database pool already initialized"))?;
 
     Ok(())
 }
 
 /// Get a database connection from the pool
 pub async fn get_connection() -> anyhow::Result<DbConnection> {
-    let pool_guard = DB_POOL.lock().unwrap();
-    let pool = pool_guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Database pool not initialized"))?;
-
-    let conn = pool
-        .get()
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    Ok(DbConnection::from(conn))
+    let pool = get_pool().await?;
+    let conn = pool.get_async().await?;
+    Ok(conn)
 }
 
 /// Get a clone of the global connection pool
 pub async fn get_pool() -> anyhow::Result<Arc<DbPool>> {
-    let pool_guard = DB_POOL.lock().unwrap();
-    let pool = pool_guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Database pool not initialized"))?;
-    Ok(pool.clone())
+    DB_POOL
+        .get()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Database pool not initialized"))
 }
