@@ -11,12 +11,11 @@ use diesel::prelude::*;
 use crate::error::Error;
 use diesel::sql_query;
 use diesel_async::{
-    pooled_connection::deadpool::Object,
+    pooled_connection::bb8::PooledConnection,
     AsyncDieselConnectionManager, AsyncSqliteConnection, RunQueryDsl,
 };
-use diesel::sqlite::SqliteRow;
+
 use std::sync::Arc;
-use uuid::Uuid;
 
 /// A SQLite-backed storage implementation.
 #[derive(Debug, Clone)]
@@ -31,42 +30,8 @@ impl SqliteBackend {
     }
 
     /// Get a connection from the pool.
-    async fn get_conn(&self) -> Result<Object<AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
+        async fn get_conn(&self) -> Result<PooledConnection<'_, AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
         self.pool.get_async().await.map_err(Into::into)
-    }
-    
-    /// Convert a database row to a Snippet
-    fn row_to_snippet(
-        &self,
-        row: diesel::sqlite::SqliteRow,
-    ) -> Result<Snippet> {
-        use diesel::row::NamedRow;
-        
-        let uuid: String = row.get("uuid").map_err(Error::from)?;
-        let title: String = row.get("title").map_err(Error::from)?;
-        let content: String = row.get("content").map_err(Error::from)?;
-        let tags_json: String = row.get("tags").map_err(Error::from)?;
-        let embedding: Option<Vec<u8>> = row.get("embedding").map_err(Error::from)?;
-        let created_at: chrono::NaiveDateTime = row.get("created_at").map_err(Error::from)?;
-        let updated_at: chrono::NaiveDateTime = row.get("updated_at").map_err(Error::from)?;
-        
-        // Validate the UUID format
-        Uuid::parse_str(&uuid).map_err(Error::from)?;
-        
-        // Validate the tags JSON
-        let _: Vec<String> = serde_json::from_str(&tags_json).map_err(Error::from)?;
-        
-        let snippet = Snippet {
-            uuid,
-            title,
-            content,
-            tags: tags_json,
-            embedding,
-            created_at,
-            updated_at,
-        };
-
-        Ok(snippet)
     }
 }
 

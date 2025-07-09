@@ -1,4 +1,6 @@
 use crate::error::{Error, Result};
+use std::path::Path; // Needed for validate_db_path and other helpers
+use home::home_dir; // Used to locate user home directory
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -23,19 +25,13 @@ mod connection {
     // Use cfg_if to handle the mutually exclusive features
     cfg_if::cfg_if! {
         if #[cfg(feature = "sqlite")] {
-            use diesel_async::{
-                AsyncSqliteConnection,
-                pooled_connection::AsyncDieselConnectionManager,
-                async_connection_wrapper::AsyncConnectionWrapper,
-            };
-            use bb8::Pool as Bb8Pool;
-            use std::convert::Infallible;
-            use async_trait::async_trait;
+            use diesel::r2d2::{ConnectionManager, Pool};
+            use diesel::sqlite::SqliteConnection;
             
-            pub type Connection = AsyncSqliteConnection;
-            pub type Manager = AsyncDieselConnectionManager<AsyncSqliteConnection>;
-            pub type Pool = Bb8Pool<Manager>;
-            pub type PooledConn = AsyncConnectionWrapper<AsyncSqliteConnection>;
+            pub type Connection = SqliteConnection;
+            pub type Manager = ConnectionManager<SqliteConnection>;
+            pub type Pool = Pool<Manager>;
+            pub type PooledConn = r2d2::PooledConnection<Manager>;
             
             // Wrapper to provide a sync interface over async connection
             pub struct SyncConnectionWrapper(PooledConn);
@@ -98,14 +94,17 @@ mod connection {
 
 // Re-export the connection types
 pub use connection::Connection as DbConnection;
-pub use connection::Pool as DbPool;
+// Re-exporting Pool directly as DbPool causes a name conflict with the wrapper struct
+// pub use connection::Pool as DbPool;
+// Instead, expose it under a different name in case it is needed internally.
+pub use connection::Pool as RawDbPool;
 pub use connection::PooledConn;
 
 type ConnectionManagerType = connection::Manager;
 
 // Import the appropriate pool type based on the backend
 #[cfg(feature = "sqlite")]
-pub type AsyncDbConnection = diesel_async::AsyncSqliteConnection;
+pub type AsyncDbConnection = diesel::sqlite::SqliteConnection;
 #[cfg(feature = "postgres")]
 use bb8::Pool as Bb8Pool;
 
@@ -139,13 +138,12 @@ impl DbPool {
                 }
             }
             
-            let manager = AsyncDieselConnectionManager::<diesel_async::AsyncSqliteConnection>::new(database_url);
-            let pool = Bb8Pool::builder()
+            use diesel::r2d2::{ConnectionManager, Pool};
+            let manager = ConnectionManager::<diesel::sqlite::SqliteConnection>::new(database_url);
+            let pool = Pool::builder()
                 .max_size(16)
                 .build(manager)
-                .await
                 .map_err(|e| Error::other(format!("Failed to create connection pool: {}", e)))?;
-                
             Ok(Self(Arc::new(pool)))
         }
         
@@ -438,12 +436,12 @@ pub async fn create_test_pool() -> Result<DbPool> {
                 diesel::RunQueryDsl::execute(
                     diesel::sql_query("PRAGMA foreign_keys = ON"),
                     conn
-                ).map_err(|e| Error::other(format!("Failed to enable foreign keys: {}")))?;
+                ).map_err(|e| Error::other(format!("Failed to enable foreign keys: {}", e)))?;
                 
                 diesel::RunQueryDsl::execute(
                     diesel::sql_query("PRAGMA journal_mode = WAL"),
                     conn
-                ).map_err(|e| Error::other(format!("Failed to enable WAL mode: {}")))?;
+                ).map_err(|e| Error::other(format!("Failed to enable WAL mode: {}", e)))?;
                 
                 Ok(())
             })?;

@@ -19,8 +19,10 @@ pub struct Query {
     pub text_filter: Option<String>,
     /// Tags to filter by
     pub tags: Option<Vec<String>>,
-    /// Maximum number of results to return (0 for no limit)
-    pub limit: usize,
+    /// Maximum number of results to return
+    pub limit: Option<usize>,
+    /// Optional field to control sorting ("title", "created_at", "updated_at")
+    pub sort_by: Option<String>,
     /// Content to search for (alternative to text_filter for backward compatibility)
     pub content: Option<String>,
 }
@@ -178,10 +180,7 @@ impl SnippetWithTags {
 }
 
 /// The main Snippet struct that implements MemoryItem
-use diesel::deserialize::{self, FromSql};
-use diesel::sql_types::{Binary, Nullable};
-use diesel::sqlite::Sqlite;
-use diesel::row::NamedRow;
+
 
 #[derive(Queryable, Selectable, Serialize, Deserialize, Debug, Clone)]
 #[diesel(table_name = crate::schema::snippets)]
@@ -196,43 +195,6 @@ pub struct Snippet {
     pub updated_at: NaiveDateTime,
 }
 
-impl<DB> QueryableByName<DB> for Snippet
-where
-    DB: Backend,
-    String: FromSql<Text, DB>,
-    NaiveDateTime: FromSql<Timestamp, DB>,
-    Option<Vec<u8>>: FromSql<Nullable<Binary>, DB>,
-{
-    fn build<'a>(row: &impl NamedRow<'a, DB>) -> deserialize::Result<Self> {
-        let uuid = NamedRow::get::<Text, String>(row, "uuid")?;
-        let title = NamedRow::get::<Text, String>(row, "title")?;
-        let content = NamedRow::get::<Text, String>(row, "content")?;
-        let tags = NamedRow::get::<Text, String>(row, "tags")?;
-        let embedding = NamedRow::get::<Nullable<Binary>, Option<Vec<u8>>>(row, "embedding")?;
-        let created_at = NamedRow::get::<Timestamp, NaiveDateTime>(row, "created_at")?;
-        let updated_at = NamedRow::get::<Timestamp, NaiveDateTime>(row, "updated_at")?;
-
-        // Validate the UUID format
-        Uuid::parse_str(&uuid).map_err(|e| {
-            Box::new(diesel::result::Error::DeserializationError(Box::new(e)))
-        })?;
-
-        // Validate the tags JSON
-        let _: Vec<String> = serde_json::from_str(&tags).map_err(|e| {
-            Box::new(diesel::result::Error::DeserializationError(Box::new(e)))
-        })?;
-
-        Ok(Self {
-            uuid,
-            title,
-            content,
-            tags,
-            embedding,
-            created_at,
-            updated_at,
-        })
-    }
-}
 
 impl Snippet {
     /// Get the UUID as a Uuid type
