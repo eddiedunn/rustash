@@ -25,7 +25,6 @@ tauri = { workspace = true, optional = true }
 
 # Core library
 rustash-core.workspace = true
-rustash-utils.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
@@ -33,5 +32,4 @@ proptest.workspace = true
 [features]
 default = ["sqlite", "desktop"]
 sqlite = ["rustash-core/sqlite"]
-postgres = ["rustash-core/postgres"]
-desktop = ["tauri"]
+postgres = ["rustash-core/postgres"]desktop = ["tauri"]
