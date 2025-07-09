@@ -76,10 +76,11 @@ async fn main() -> Result<()> {
 
     // Initialize the database connection pool with the specified backend
     init_db(cli.db_backend, cli.db_path).await?;
+    let pool = db::get_pool().await?;
 
     match cli.command {
-        Commands::Add(cmd) => cmd.execute().await,
-        Commands::List(cmd) => cmd.execute().await,
-        Commands::Use(cmd) => cmd.execute().await,
+        Commands::Add(cmd) => cmd.execute(pool.clone()).await,
+        Commands::List(cmd) => cmd.execute(pool.clone()).await,
+        Commands::Use(cmd) => cmd.execute(pool).await,
     }
 }

@@ -1,13 +1,15 @@
 //! Use snippet command
 
-use crate::db;
 use crate::utils::copy_to_clipboard;
 use anyhow::{Context, Result};
 use clap::Args;
 use dialoguer::Input;
 use regex::Regex;
-use rustash_core::{expand_placeholders, get_snippet_by_id, models::SnippetWithTags};
+use rustash_core::{
+    database::DbPool, expand_placeholders, get_snippet_by_id, models::SnippetWithTags,
+};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Args)]
@@ -35,9 +37,7 @@ pub struct UseCommand {
 }
 
 impl UseCommand {
-    pub async fn execute(self) -> Result<()> {
-        let pool = db::get_pool().await?;
-
+    pub async fn execute(self, pool: Arc<DbPool>) -> Result<()> {
         // Parse UUID and get the snippet
         let _snippet_uuid = self
             .uuid

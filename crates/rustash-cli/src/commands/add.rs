@@ -1,9 +1,10 @@
 //! Add snippet command
 
-use crate::db;
 use anyhow::Result;
 use clap::Args;
+use rustash_core::database::DbPool;
 use rustash_core::{add_snippet, models::Snippet};
+use std::sync::Arc;
 use uuid::Uuid;
 
 // Conditionally compile the GUI module usage
@@ -30,18 +31,18 @@ pub struct AddCommand {
 }
 
 impl AddCommand {
-    pub async fn execute(self) -> Result<()> {
+    pub async fn execute(self, pool: Arc<DbPool>) -> Result<()> {
         // If we're reading from stdin, use CLI mode
         if self.stdin {
-            return self.execute_cli().await;
+            return self.execute_cli(pool).await;
         }
 
         // If both title and content are provided, use CLI mode
         if self.title.is_some() && self.content.is_some() {
-            self.execute_cli().await
+            self.execute_cli(pool).await
         } else if self.title.is_none() && self.content.is_none() {
             // If neither is provided, launch the GUI
-            self.launch_gui().await
+            self.launch_gui(pool).await
         } else {
             // If only one is provided, show an error
             anyhow::bail!("Both --title and --content must be provided for command-line mode")
@@ -49,7 +50,7 @@ impl AddCommand {
     }
 
     /// Handles the command-line logic for adding a snippet.
-    async fn execute_cli(self) -> Result<()> {
+    async fn execute_cli(self, pool: Arc<DbPool>) -> Result<()> {
         let title = self.title.unwrap_or_default();
         let content = if self.stdin {
             use std::io::{self, Read};
@@ -67,7 +68,6 @@ impl AddCommand {
             anyhow::bail!("Content cannot be empty for CLI usage.");
         }
 
-        let pool = db::get_pool().await?;
         let new_snippet =
             Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
         let snippet = add_snippet(&pool, new_snippet).await?;
@@ -87,14 +87,13 @@ impl AddCommand {
 
     /// Launches the GUI. This function is only compiled if the 'gui' feature is enabled.
     #[cfg(feature = "gui")]
-    async fn launch_gui(&self) -> Result<()> {
+    async fn launch_gui(&self, pool: Arc<DbPool>) -> Result<()> {
         println!("No arguments provided. Launching GUI to add snippet...");
 
         // Launch the GUI window and wait for it to close.
         // It returns data for the new snippet if the user saved it.
         if let Some(new_snippet_data) = gui::show_add_window()? {
             // The GUI returns the data; the CLI is responsible for saving it.
-            let pool = db::get_pool().await?;
             let snippet_to_add = Snippet::with_uuid(
                 Uuid::new_v4(),
                 new_snippet_data.title,
@@ -111,7 +110,7 @@ impl AddCommand {
 
     /// Fallback function if the 'gui' feature is disabled at compile time.
     #[cfg(not(feature = "gui"))]
-    async fn launch_gui(&self) -> Result<()> {
+    async fn launch_gui(&self, _pool: Arc<DbPool>) -> Result<()> {
         anyhow::bail!(
             "No arguments provided. To use the GUI, please compile with the 'gui' feature."
         )
