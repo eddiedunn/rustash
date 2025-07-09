@@ -1,34 +1,38 @@
 //! Snippet CRUD operations
 
-use crate::database::DbConnection;
+use crate::database::{DbConnection, DbPool};
 use crate::error::{Error, Result, UuidExt};
 use crate::models::{NewDbSnippet, Snippet, SnippetListItem, SnippetWithTags, UpdateSnippet};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
 
 /// Add a new snippet to the database
-pub fn add_snippet(conn: &mut DbConnection, new_snippet: Snippet) -> Result<Snippet> {
+pub async fn add_snippet(pool: &DbPool, new_snippet: Snippet) -> Result<Snippet> {
     // Validate input
     validate_snippet_content(&new_snippet.title, &new_snippet.content)?;
-    
+
     use crate::schema::snippets::dsl::*;
-    
+
     // Convert Snippet to NewDbSnippet for insertion
     let new_db_snippet = NewDbSnippet::from(new_snippet);
-    
+
     // Insert the new snippet and get the result
     // Note: SQLite doesn't support RETURNING, so we need to fetch the inserted row separately
     let snippet_uuid = new_db_snippet.uuid.clone();
-    
+
+    let mut conn = pool.get_async().await?;
     diesel::insert_into(snippets)
         .values(&new_db_snippet)
-        .execute(conn)?;
-    
+        .execute(&mut conn)
+        .await?;
+
     // Fetch the newly inserted snippet
     let result = snippets
         .filter(uuid.eq(&snippet_uuid))
         .select(Snippet::as_select())
-        .first(conn)
+        .first(&mut conn)
+        .await
         .map_err(|e| {
             if let diesel::result::Error::NotFound = e {
                 Error::not_found(format!("Failed to retrieve newly created snippet with UUID: {}", snippet_uuid))
@@ -41,15 +45,17 @@ pub fn add_snippet(conn: &mut DbConnection, new_snippet: Snippet) -> Result<Snip
 }
 
 /// Get a snippet by UUID
-pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_uuid: &str) -> Result<Option<Snippet>> {
+pub async fn get_snippet_by_id(pool: &DbPool, snippet_uuid: &str) -> Result<Option<Snippet>> {
     // Validate UUID format
     snippet_uuid.parse_uuid()?;
     use crate::schema::snippets::dsl::*;
-    
+
+    let mut conn = pool.get_async().await?;
     let result = snippets
         .filter(uuid.eq(snippet_uuid))
         .select(Snippet::as_select())
-        .first(conn)
+        .first(&mut conn)
+        .await
         .optional()?;
     
     Ok(result)
@@ -69,12 +75,13 @@ pub fn get_snippet_by_id(conn: &mut DbConnection, snippet_uuid: &str) -> Result<
 ///
 /// # Returns
 /// A vector of matching snippets, ordered by relevance (if searching) or update time.
-pub fn list_snippets(
-    conn: &mut DbConnection,
+pub async fn list_snippets(
+    pool: &DbPool,
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<SnippetListItem>> {
+    let mut conn = pool.get_async().await?;
     // If there are any filters, build and execute an FTS query.
     if filter_text.is_some() || tag_filter.is_some() {
         // For simplicity, we'll build a single query string with the search terms
@@ -107,7 +114,8 @@ pub fn list_snippets(
             // Execute the query with the search terms as a single parameter
             let results = diesel::sql_query(&query)
                 .bind::<diesel::sql_types::Text, _>(&query_str)
-                .load::<SnippetListItem>(conn)
+                .load::<SnippetListItem>(&mut conn)
+                .await
                 .map_err(|e| Error::other(format!("Failed to execute FTS query: {}", e)))?;
                 
             return Ok(results);
@@ -123,20 +131,22 @@ pub fn list_snippets(
             .select((uuid, title, tags, updated_at))
             .order(updated_at.desc())
             .limit(limit_val)
-            .load::<SnippetListItem>(conn)?
+            .load::<SnippetListItem>(&mut conn)
+            .await?
     } else {
         snippets
             .select((uuid, title, tags, updated_at))
             .order(updated_at.desc())
-            .load::<SnippetListItem>(conn)?
+            .load::<SnippetListItem>(&mut conn)
+            .await?
     };
     
     Ok(results)
 }
 
 /// Update an existing snippet
-pub fn update_snippet(
-    conn: &mut DbConnection,
+pub async fn update_snippet(
+    pool: &DbPool,
     snippet_uuid: &str,
     update_data: UpdateSnippet,
 ) -> Result<Snippet> {
@@ -151,9 +161,11 @@ pub fn update_snippet(
     }
     
     // Update the snippet and get the number of affected rows
+    let mut conn = pool.get_async().await?;
     let rows_updated = diesel::update(snippets.filter(uuid.eq(snippet_uuid)))
         .set(&update_data)
-        .execute(conn)?;
+        .execute(&mut conn)
+        .await?;
     
     if rows_updated == 0 {
         return Err(Error::not_found(format!("Snippet with UUID: {}", snippet_uuid)));
@@ -163,7 +175,8 @@ pub fn update_snippet(
     let result = snippets
         .filter(uuid.eq(snippet_uuid))
         .select(Snippet::as_select())
-        .first(conn)
+        .first(&mut conn)
+        .await
         .map_err(|e| {
             if let diesel::result::Error::NotFound = e {
                 Error::other(format!("Failed to retrieve updated snippet with UUID: {}", snippet_uuid))
@@ -176,14 +189,16 @@ pub fn update_snippet(
 }
 
 /// Delete a snippet by UUID
-pub fn delete_snippet(conn: &mut DbConnection, snippet_uuid: &str) -> Result<bool> {
+pub async fn delete_snippet(pool: &DbPool, snippet_uuid: &str) -> Result<bool> {
     use crate::schema::snippets::dsl::*;
-    
+
     // Validate UUID format
     snippet_uuid.parse_uuid()?;
-    
+
+    let mut conn = pool.get_async().await?;
     let num_deleted = diesel::delete(snippets.filter(uuid.eq(snippet_uuid)))
-        .execute(conn)?;
+        .execute(&mut conn)
+        .await?;
     
     if num_deleted == 0 {
         return Err(Error::not_found(format!("Snippet with UUID: {}", snippet_uuid)));
@@ -205,13 +220,13 @@ pub fn delete_snippet(conn: &mut DbConnection, snippet_uuid: &str) -> Result<boo
 /// 
 /// # Returns
 /// A vector of matching snippet list items (without content), ordered by relevance
-pub fn search_snippets(
-    conn: &mut DbConnection,
+pub async fn search_snippets(
+    pool: &DbPool,
     query_text: &str,
     limit: Option<i64>,
 ) -> Result<Vec<SnippetListItem>> {
     // Delegate to list_snippets with the query as the filter text
-    list_snippets(conn, Some(query_text), None, limit)
+    list_snippets(pool, Some(query_text), None, limit).await
 }
 
 /// Expand placeholders in snippet content with provided variables
@@ -246,16 +261,16 @@ pub fn expand_placeholders(content_str: &str, variables: &HashMap<String, String
 /// 
 /// # Returns
 /// A vector of `SnippetWithTags` containing the full snippet data with parsed tags
-pub fn list_snippets_with_tags(
-    conn: &mut DbConnection,
+pub async fn list_snippets_with_tags(
+    pool: &DbPool,
     filter_text: Option<&str>,
     tag_filter: Option<&str>,
     limit: Option<i64>,
 ) -> Result<Vec<SnippetWithTags>> {
     use crate::schema::snippets::dsl::*;
-    
+
     // First get the lightweight snippet list
-    let snippet_items = list_snippets(conn, filter_text, tag_filter, limit)?;
+    let snippet_items = list_snippets(pool, filter_text, tag_filter, limit).await?;
     
     // If no snippets found, return early
     if snippet_items.is_empty() {
@@ -269,10 +284,12 @@ pub fn list_snippets_with_tags(
         .collect();
     
     // Fetch the full snippets in a single query using the UUIDs
+    let mut conn = pool.get_async().await?;
     let full_snippets = snippets
         .filter(uuid.eq_any(snippet_uuids))
         .select(Snippet::as_select())
-        .load::<Snippet>(conn)?;
+        .load::<Snippet>(&mut conn)
+        .await?;
     
     // Convert Snippet to SnippetWithTags
     let mut results: Vec<SnippetWithTags> = full_snippets

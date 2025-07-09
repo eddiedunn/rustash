@@ -67,10 +67,10 @@ impl AddCommand {
             anyhow::bail!("Content cannot be empty for CLI usage.");
         }
 
-        let mut conn = db::get_connection().await?;
+        let pool = db::get_pool().await?;
         let new_snippet =
             Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
-        let snippet = add_snippet(&mut *conn, new_snippet)?;
+        let snippet = add_snippet(&pool, new_snippet).await?;
         println!(
             "✓ Added snippet '{}' with ID: {}",
             snippet.title, snippet.uuid
@@ -94,14 +94,14 @@ impl AddCommand {
         // It returns data for the new snippet if the user saved it.
         if let Some(new_snippet_data) = gui::show_add_window()? {
             // The GUI returns the data; the CLI is responsible for saving it.
-            let mut conn = db::get_connection().await?;
+            let pool = db::get_pool().await?;
             let snippet_to_add = Snippet::with_uuid(
                 Uuid::new_v4(),
                 new_snippet_data.title,
                 new_snippet_data.content,
                 new_snippet_data.tags,
             );
-            add_snippet(&mut *conn, snippet_to_add)?;
+            add_snippet(&pool, snippet_to_add).await?;
             println!("✓ Snippet added via GUI.");
         } else {
             println!("Operation cancelled.");
