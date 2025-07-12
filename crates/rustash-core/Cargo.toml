@@ -43,22 +43,21 @@ tempfile = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-# Default to SQLite for backward compatibility
-default = ["sqlite"]
+# Default build includes both database backends, allowing for runtime selection.
+default = ["sqlite", "postgres"]
 
-# SQLite backend
+# SQLite backend dependencies
 sqlite = [
     "diesel/sqlite",
     "diesel-async/sqlite"
 ]
 
-# PostgreSQL backend
+# PostgreSQL backend dependencies
 postgres = [
     "diesel/postgres",
     "bb8",
-    "bb8-postgres",
     "diesel-async/postgres"
 ]
 
 # Vector search (experimental)
-vector-search = ["hnsw_rs"]
+vector-search = ["dep:hnsw_rs"]
