@@ -11,55 +11,32 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# Database
+# Core
 diesel = { workspace = true, features = ["chrono", "serde_json", "uuid"] }
-
-# Database migrations with backend-specific features
-diesel_migrations = { workspace = true, optional = true }
+diesel_migrations = { workspace = true }
+diesel-async = { version = "0.5", default-features = false }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-erased-serde = { workspace = true }
-
-# Async
-async-trait = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-
-# Time handling
+uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
 
-# Error handling
-anyhow = { workspace = true }
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
+log = "0.4"
 
-# UUID generation
-uuid = { workspace = true, features = ["v4", "serde", "v7"] }
-
-# Conditional compilation
-cfg-if = "1.0"
+# Connection pooling
+bb8 = { version = "0.8", optional = true }
+bb8-postgres = { version = "0.8", optional = true }
 
 # Platform-specific paths
 home = "0.5"
+
+# Vector search (experimental)
 hnsw_rs = { version = "0.3", optional = true }
-
-# PostgreSQL backend dependencies
-bb8 = { version = "0.8.0", optional = true }
-bb8-postgres = { version = "0.8.0", optional = true }
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
-diesel-async = { version = "0.5.0", features = ["postgres", "sqlite", "bb8"], optional = true }
-
-# SQLite backend dependencies
-r2d2 = { version = "0.8", optional = true }
-
-[target.'cfg(feature = "sqlite")'.dependencies]
-libsqlite3-sys = { version = "0.30.0", features = ["bundled"], optional = true }
-
-# Vector search (commented out due to build issues)
-# sqlite-vss = { workspace = true }
-
-# Vector search (commented out due to build issues)
-# sqlite-vss = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -71,10 +48,7 @@ default = ["sqlite"]
 
 # SQLite backend
 sqlite = [
-    "diesel/sqlite", 
-    "diesel/r2d2",
-    "r2d2",
-    "libsqlite3-sys",
+    "diesel/sqlite",
     "diesel-async/sqlite"
 ]
 
@@ -83,12 +57,8 @@ postgres = [
     "diesel/postgres",
     "bb8",
     "bb8-postgres",
-    "tokio-postgres",
     "diesel-async/postgres"
 ]
 
 # Vector search (experimental)
 vector-search = ["hnsw_rs"]
-
-# Database migrations
-migrations = ["diesel_migrations"]

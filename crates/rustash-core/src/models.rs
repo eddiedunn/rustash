@@ -46,7 +46,7 @@ impl Query {
     
     /// Set the maximum number of results
     pub fn with_limit(mut self, limit: usize) -> Self {
-        self.limit = limit;
+        self.limit = Some(limit);
         self
     }
 }

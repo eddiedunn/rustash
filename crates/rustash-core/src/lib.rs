@@ -15,7 +15,9 @@ pub mod storage;
 pub mod search;
 
 // Re-export commonly used types
-pub use database::{create_connection_pool, DbPool};
+pub use database::{
+    create_connection_pool, create_test_pool, Connection, DbConnectionPool, DbPool
+};
 pub use error::{Error, Result};
 pub use memory::MemoryItem;
 pub use models::{DbSnippet, NewDbSnippet, Snippet, SnippetWithTags};

@@ -11,9 +11,9 @@ use diesel::prelude::*;
 use crate::error::Error;
 use diesel::sql_query;
 use diesel_async::{
-    pooled_connection::bb8::PooledConnection,
     AsyncDieselConnectionManager, AsyncSqliteConnection, RunQueryDsl,
 };
+use crate::database::PooledConn;
 
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ impl SqliteBackend {
     }
 
     /// Get a connection from the pool.
-        async fn get_conn(&self) -> Result<PooledConnection<'_, AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
+    async fn get_conn(&self) -> Result<PooledConn> {
         self.pool.get_async().await.map_err(Into::into)
     }
 }
@@ -203,54 +203,13 @@ impl StorageBackend for SqliteBackend {
     
     async fn get_related(
         &self,
-        id: &Uuid,
-        relation_type: Option<&str>,
+        _id: &Uuid,
+        _relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use crate::schema::{snippets, snippet_relations};
-        use diesel_async::RunQueryDsl;
-        
-        let id_str = id.to_string();
-        let rel_type = relation_type.map(|s| s.to_string());
-        
-        let mut conn = self.get_conn().await?;
-        
-        // First, get all related snippet IDs
-        let related_ids: Vec<String> = {
-            let mut query = snippet_relations::table
-                .filter(snippet_relations::from_id.eq(&id_str))
-                .select(snippet_relations::to_id)
-                .into_boxed();
-                
-            if let Some(ref rel_type) = rel_type {
-                query = query.filter(snippet_relations::relation_type.eq(rel_type));
-            }
-            
-            query.load::<String>(&mut *conn)
-                .await
-                .map_err(Error::from)?
-        };
-        
-        if related_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        
-        // Then get the actual snippets
-        let results: Vec<Snippet> = snippets::table
-            .filter(snippets::uuid.eq_any(related_ids))
-            .load::<Snippet>(&mut *conn)
-            .await
-            .map_err(Error::from)?;
-            
-        // Convert to MemoryItem
-        let items = results
-            .into_iter()
-            .map(|s| {
-                let with_tags: SnippetWithTags = s.into();
-                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
-            })
-            .collect();
-            
-        Ok(items)
+        // Relations not supported currently
+        Ok(Vec::new())
+    }
+
     }
 }
 

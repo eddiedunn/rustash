@@ -2,6 +2,7 @@
 members = [
     "crates/rustash-core",
     "crates/rustash-cli",
+    "crates/desktop",
 ]
 resolver = "2"
 
@@ -10,8 +11,8 @@ version = "1.4"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.87"
+edition = "2021"
+rust-version = "1.78"
 authors = ["Rustash Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rustash/rustash"
@@ -39,6 +40,8 @@ indicatif = "0.17"
 console = "0.15"
 termcolor = "1.4"
 dirs = "5.0"
+colored = "2.1"
+home = "0.5"
 
 # Database dependencies
 diesel = { version = "2.2", features = ["chrono", "uuid"] }
@@ -49,6 +52,7 @@ diesel_migrations = { version = "2.2" }
 # Async utilities
 async-trait = "0.1"
 erased-serde = "0.3"
+pretty_env_logger = "0.5"
 
 # Fuzzy finder and search
 skim = "0.10"
@@ -69,6 +73,12 @@ tempfile = "3.12"
 
 # Regex for pattern matching
 regex = "1.10"
+
+# Configuration management
+config = "0.14"
+notify = "6.1"
+walkdir = "2.4"
+which = "5.0"
 
 # Utility crates
 rustash-core = { path = "crates/rustash-core" }

@@ -5,11 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 // Print which features are enabled for debugging
-#[cfg(feature = "sqlite")]
-log::debug!("SQLite feature is enabled");
 
-#[cfg(feature = "postgres")]
-log::debug!("PostgreSQL feature is enabled");
+
+
 
 // Ensure exactly one database backend is enabled
 #[cfg(all(feature = "sqlite", feature = "postgres"))]
@@ -25,30 +23,15 @@ mod connection {
     // Use cfg_if to handle the mutually exclusive features
     cfg_if::cfg_if! {
         if #[cfg(feature = "sqlite")] {
-            use diesel::r2d2::{ConnectionManager, Pool as R2d2Pool};
-            use diesel::sqlite::SqliteConnection;
+            use diesel_async::{
+                pooled_connection::{AsyncDieselConnectionManager, bb8::Pool as Bb8Pool, bb8::PooledConnection, AsyncConnectionWrapper},
+                AsyncSqliteConnection,
+            };
 
-            pub type Connection = SqliteConnection;
-            pub type Manager = ConnectionManager<SqliteConnection>;
-            pub type Pool = R2d2Pool<Manager>;
-            pub type PooledConn = r2d2::PooledConnection<Manager>;
-
-            // Wrapper to provide a sync interface over async connection
-            pub struct SyncConnectionWrapper(PooledConn);
-
-            impl std::ops::Deref for SyncConnectionWrapper {
-                type Target = AsyncSqliteConnection;
-
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
-            }
-
-            impl std::ops::DerefMut for SyncConnectionWrapper {
-                fn deref_mut(&mut self) -> &mut Self::Target {
-                    &mut self.0
-                }
-            }
+            pub type Connection = AsyncSqliteConnection;
+            pub type Manager = AsyncDieselConnectionManager<AsyncSqliteConnection>;
+            pub type Pool = Bb8Pool<Manager>;
+            pub type PooledConn = AsyncConnectionWrapper<AsyncSqliteConnection>;
         } else if #[cfg(feature = "postgres")] {
             use diesel::pg::PgConnection;
             use diesel_async::{
@@ -141,11 +124,13 @@ impl DbPool {
                 }
             }
 
-            use diesel::r2d2::{ConnectionManager, Pool};
-            let manager = ConnectionManager::<diesel::sqlite::SqliteConnection>::new(database_url);
-            let pool = Pool::builder()
-                .max_size(16)
+            use diesel_async::{pooled_connection::AsyncDieselConnectionManager, AsyncSqliteConnection};
+            use bb8::Pool as Bb8Pool;
+
+            let manager = AsyncDieselConnectionManager::<AsyncSqliteConnection>::new(database_url);
+            let pool = Bb8Pool::builder()
                 .build(manager)
+                .await
                 .map_err(|e| Error::other(format!("Failed to create connection pool: {}", e)))?;
             Ok(Self(Arc::new(pool)))
         }
@@ -170,14 +155,13 @@ impl DbPool {
     pub async fn get_async(&self) -> Result<DbConnection> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "sqlite")] {
-                use diesel::SqliteConnection;
+                use diesel_async::{pooled_connection::AsyncDieselConnectionManager, AsyncSqliteConnection};
+                use bb8::Pool as Bb8Pool;
 
-                // For SQLite, we need to use a blocking task
-                let pool = self.0.downcast_ref::<Pool<ConnectionManager<SqliteConnection>>>()
+                let pool = self.0.downcast_ref::<Bb8Pool<AsyncDieselConnectionManager<AsyncSqliteConnection>>>()
                     .ok_or_else(|| Error::other("Failed to downcast SQLite connection pool"))?;
 
-                // Get a connection from the pool
-                let conn = pool.get()
+                let conn = pool.get_owned().await
                     .map_err(|e| Error::other(format!("Failed to get SQLite connection: {}", e)))?;
 
                 Ok(conn.into())

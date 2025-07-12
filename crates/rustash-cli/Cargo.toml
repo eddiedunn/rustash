@@ -18,59 +18,46 @@ path = "src/main.rs"
 # Core library
 rustash-core = { workspace = true }
 
-# CLI framework
-clap = { workspace = true, features = ["derive", "env"] }
-clap_complete = { workspace = true }
+# Command-line interface
+clap = { version = "4.5", features = ["derive"] }
 
-# User interaction
-dialoguer = { workspace = true }
-console = { workspace = true }
-indicatif = { workspace = true }
+# Logging and output
+colored = { workspace = true }
+log = "0.4"
+pretty_env_logger = { workspace = true }
 
-# UUID handling
-uuid = { workspace = true }
-
-# Clipboard integration
-arboard = { workspace = true }
-
-# Fuzzy finder
-skim = { workspace = true }
-
-# Lazy initialization
-lazy_static = { workspace = true }
+# Async runtime
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# File system operations
+walkdir = { workspace = true }
+
 # Platform-specific paths
-dirs = { workspace = true }
-
-# Serialization
-serde = { workspace = true, features = ["derive"] }
-
-# Logging
-log = "0.4"
-
-# Database
-# Note: Database dependencies are managed by rustash-core
-diesel = { workspace = true, features = ["chrono", "uuid"] }
-diesel_migrations = { workspace = true }
-serde_json = { workspace = true }
+home = { workspace = true }
 
 # Regular expressions
 regex = { workspace = true }
 
-# Optional GUI dependencies
-eframe = { version = "0.27", optional = true }
-egui = { version = "0.27", optional = true }
+# Terminal interactions
+dialoguer = { workspace = true }
+
+# Configuration management
+config = { workspace = true }
+
+# File watching
+notify = { workspace = true }
+
+# Command execution
+which = { workspace = true }
+
+# Shell completion
+clap_complete = { workspace = true }
 
 [dev-dependencies]
-diesel = { workspace = true }
-diesel_migrations = { workspace = true }
-serde_json = { workspace = true }
-tempfile = { workspace = true }
-proptest = { workspace = true }
 assert_matches = "1.5.0"
 # GUI testing temporarily disabled due to egui_test not being available on crates.io
 serial_test = "2.0"
@@ -82,8 +69,9 @@ chrono = { workspace = true, features = ["serde"] }
 termcolor = { workspace = true }
 
 [features]
-default = ["sqlite", "gui"]
+default = ["sqlite"]
 sqlite = ["rustash-core/sqlite"]
 postgres = ["rustash-core/postgres"]
-gui = ["dep:eframe", "dep:egui"]
+# GUI feature is disabled by default due to dependency issues
+# gui = ["dep:eframe", "dep:egui"]
 vector-search = ["rustash-core/vector-search"]
