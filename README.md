@@ -57,6 +57,7 @@ rustash --stash my-snippets snippets list
 |----------|-------------|
 | [USER_GUIDE.md](USER_GUIDE.md) | Complete guide to using the Rustash CLI and managing stashes. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture and design decisions. |
+| [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) | Setup and workflow for contributors. |
 | [CONTRIBUTING_WITH_AI.md](CONTRIBUTING_WITH_AI.md) | How we use AI in our development process. |
 
 ## 🤝 Contributing

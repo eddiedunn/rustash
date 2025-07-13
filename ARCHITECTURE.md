@@ -173,7 +173,7 @@ The project's investment in DevX is a significant strength.
 
 *   **AI-Driven Workflow**: The PRP system is a sophisticated and powerful way to ensure high-quality, consistent contributions. It's a defining feature of this project.
 *   **`xtask` Build System**: Using `cargo xtask` for build automation is a modern Rust best practice. It keeps all build logic in Rust and is more flexible than shell scripts.
-*   **Documentation**: The project has a good set of documentation. To make it even better, we should create a central **`DEVELOPER_GUIDE.md`** that serves as an entry point for new contributors, linking to this `ARCHITECTURE.md`, `CONTRIBUTING_WITH_AI.md`, and other relevant resources.
+*   **Documentation**: The project has a consolidated **[`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md)** which links to this `ARCHITECTURE.md`, `CONTRIBUTING_WITH_AI.md`, and other resources.
 
 ## 6. Architectural Roadmap
 
