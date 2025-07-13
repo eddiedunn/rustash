@@ -18,7 +18,6 @@ Workspace structure to focus on:
 | `rustash-cli/` | CLI code & tests |
 | `rustash-core/` | Core library & database layer |
 | `rustash-utils/` | Shared utilities and helpers |
-| (Optional) `rustash-desktop/` | Desktop GUI (if present) |
 | Docs root | `README.md`, `GETTING_STARTED.md`, `USAGE.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md` |
 
 Do **not** edit files under `docs/legacy/` (archived).

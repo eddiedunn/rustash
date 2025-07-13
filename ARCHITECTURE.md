@@ -64,7 +64,6 @@ graph TD
     - Containerized test environments using Docker
     - Makefile targets for common test scenarios
 *   **`rustash-cli`**: The primary user interface. It's a binary crate that parses command-line arguments (via `clap`), interacts with the user, and calls into `rustash-core` to perform actions.
-*   **`rustash-desktop`**: A planned binary crate for a graphical user interface using Tauri. It will reuse `rustash-core` for all its logic.
 *   **`macros` & `utils`**: Library crates for shared, reusable code like procedural macros or common utility functions (e.g., configuration management).
 *   **`xtask`**: A build-automation crate that provides custom `cargo` commands for linting, testing, and other development tasks.
 *   **`PRPs/` & `.claude/`**: The engine of our AI-driven development process, containing structured prompts and configurations for Claude Code.

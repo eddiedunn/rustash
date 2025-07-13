@@ -1,8 +1,7 @@
 [workspace]
 members = [
     "crates/rustash-core",
-    "crates/rustash-cli",
-    "crates/desktop",
+    "crates/rustash-cli"
 ]
 resolver = "2"
 
@@ -16,7 +15,7 @@ rust-version = "1.78"
 authors = ["Rustash Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rustash/rustash"
-description = "A modern Rust-based snippet manager with CLI and desktop interfaces"
+description = "A modern Rust-based snippet manager with a powerful CLI interface"
 keywords = ["cli", "snippets", "productivity", "rust"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -64,8 +63,7 @@ arboard = "3.4"
 # Vector search (commented out due to build issues)
 # sqlite-vss = { version = "0.1" }
 
-# Desktop GUI (Tauri)
-tauri = { version = "2.0", features = ["shell-open"] }
+
 
 # Testing
 proptest = "1.5"
