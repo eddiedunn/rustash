@@ -35,6 +35,10 @@ bb8-postgres = { version = "0.8", optional = true }
 
 # Platform-specific paths
 home = "0.5"
+clap = { workspace = true, features = ["derive"] }
+dirs = { workspace = true }
+toml = "0.9"
+erased-serde = { workspace = true }
 
 # Vector search (experimental)
 hnsw_rs = { version = "0.3", optional = true }

@@ -5,7 +5,7 @@ use crate::Result;
 use serde::Deserialize;
 use std::sync::Arc;
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ServiceType {
     Snippet,
     RAG,

@@ -17,43 +17,32 @@ Rustash is structured as a Rust workspace with a clear separation of concerns be
 
 ```mermaid
 graph TD
-    subgraph User_Interfaces["User Interfaces"]
-        CLI["crates/rustash-cli"]
+    subgraph "User / Client"
+        UserAction["rustash --stash my_snippets ..."]
     end
 
-    subgraph Core_Logic["Core Logic"]
-        Core["crates/rustash-core"]
+    subgraph "Rustash Application Layer"
+        StashManager["<b>Stash Manager</b><br>(Reads stashes.toml)"]
     end
 
-    subgraph Storage_Backends["Storage Backends"]
-        SQLite["SQLite Backend"]
-        Postgres["PostgreSQL + Apache AGE"]
+    subgraph "Active Stash Instances"
+        direction LR
+        Stash1["<b>Stash: 'my_snippets'</b><br>Type: SnippetService<br>Backend: SqliteBackend"]
+        Stash2["<b>Stash: 'team_rag'</b><br>Type: RAGService<br>Backend: PostgresBackend"]
     end
 
-    subgraph Testing["Testing Infrastructure"]
-        UnitTests["Unit Tests"]
-        Integration["Integration Tests"]
-        Docker["Docker Compose"]
-    end
+    UserAction --> StashManager
 
-    subgraph Build_Tooling["Build & Tooling"]
-        Makefile["Makefile"]
-        Dockerfile["Dockerfile.test"]
-    end
+    StashManager -- "dispatches to" --> Stash1
+    StashManager -- "or" --> Stash2
 
-    CLI --> Core
-    Core --> Storage_Backends
-    Testing --> Docker
-    Build_Tooling --> Testing
-
-    style Core fill:#c9f,stroke:#333,stroke-width:2px
-    style Storage_Backends fill:#9cf,stroke:#333,stroke-width:2px
-    style Testing fill:#9f9,stroke:#333,stroke-width:2px
+    Stash1 --> DB1[(SQLite DB File)]
+    Stash2 --> DB2[(Postgres DB)]
 ```
 
 ### Component Responsibilities
 
-*   **`rustash-core`**: The heart of the application containing all business logic, storage abstractions, and data models. It defines the `StorageBackend` trait that all storage implementations must implement.
+*   **`rustash-core`**: The heart of the application containing all business logic, including the **Stash Manager** which reads `stashes.toml` and instantiates the requested stash. It defines the `StorageBackend` trait that all storage implementations must implement.
 *   **`rustash-cli`**: The command-line interface built with `clap` that provides a user-friendly way to interact with the core functionality.
 *   **Storage Backends**:
     - **SQLite**: Local, file-based storage using SQLite with FTS5 for full-text search.
@@ -68,18 +57,15 @@ graph TD
 *   **`xtask`**: A build-automation crate that provides custom `cargo` commands for linting, testing, and other development tasks.
 *   **`PRPs/` & `.claude/`**: The engine of our AI-driven development process, containing structured prompts and configurations for Claude Code.
 
-### Data Flow Example: `rustash add`
+### Data Flow Example: `rustash snippets add`
 
-1.  **User** runs `rustash add "Title" "Content" --tags rust`.
-2.  **`rustash-cli`** (`main.rs`) parses the command using `clap`.
-3.  The `AddCommand`'s `execute` method is called.
-4.  It creates a `NewSnippet` model from the arguments.
-5.  It calls the `add_snippet` function from **`rustash-core`**.
-6.  **`rustash-core`** (`snippet.rs`) validates the input.
-7.  It uses a `DbConnection` to interact with the database.
-8.  A Diesel query inserts the new snippet into the SQLite database.
-9.  The newly created `Snippet` (with ID) is returned to the CLI.
-10. **`rustash-cli`** formats a success message and prints it to the console.
+1. **User** runs `rustash --stash my_snippets snippets add "Title" "Content"`.
+2. **`rustash-cli`** parses the command using `clap`.
+3. The CLI loads your configuration and the **Stash Manager** selects (or creates) the `my_snippets` stash.
+4. The command's `execute` method constructs a `NewSnippet` model.
+5. The snippet service in **`rustash-core`** validates the input and writes to the backend.
+6. The storage backend (SQLite or Postgres) persists the new record.
+7. The created snippet is returned to the CLI, which prints a success message.
 
 ## 3. Core Components
 
