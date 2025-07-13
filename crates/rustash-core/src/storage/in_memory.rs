@@ -1,6 +1,6 @@
 //! In-memory storage backend for Rustash.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::memory::MemoryItem;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -58,18 +58,27 @@ pub struct InMemoryBackend {
 #[async_trait]
 impl StorageBackend for InMemoryBackend {
     async fn save(&self, item: &(dyn MemoryItem + Send + Sync)) -> Result<()> {
-        let mut items = self.items.write().unwrap();
+        let mut items = self
+            .items
+            .write()
+            .map_err(|_| Error::other("RwLock poisoned"))?;
         items.insert(item.id(), item.clone_dyn_send_sync());
         Ok(())
     }
 
     async fn get(&self, id: &Uuid) -> Result<Option<Box<dyn MemoryItem + Send + Sync>>> {
-        let items = self.items.read().unwrap();
+        let items = self
+            .items
+            .read()
+            .map_err(|_| Error::other("RwLock poisoned"))?;
         Ok(items.get(id).map(|item| item.clone_dyn_send_sync()))
     }
 
     async fn delete(&self, id: &Uuid) -> Result<()> {
-        let mut items = self.items.write().unwrap();
+        let mut items = self
+            .items
+            .write()
+            .map_err(|_| Error::other("RwLock poisoned"))?;
         items.remove(id);
         Ok(())
     }
@@ -80,7 +89,10 @@ impl StorageBackend for InMemoryBackend {
         _limit: usize,
     ) -> Result<Vec<(Box<dyn MemoryItem + Send + Sync>, f32)>> {
         // Simple implementation that just returns all items with a score of 1.0
-        let items = self.items.read().unwrap();
+        let items = self
+            .items
+            .read()
+            .map_err(|_| Error::other("RwLock poisoned"))?;
         let results = items
             .values()
             .map(|item| (item.clone_dyn_send_sync(), 1.0))
@@ -103,7 +115,10 @@ impl StorageBackend for InMemoryBackend {
         _query: &crate::models::Query,
     ) -> Result<Vec<Box<dyn MemoryItem + Send + Sync>>> {
         // Simple implementation that returns all items
-        let items = self.items.read().unwrap();
+        let items = self
+            .items
+            .read()
+            .map_err(|_| Error::other("RwLock poisoned"))?;
         let results = items.values().map(|item| item.clone_dyn_send_sync()).collect();
         Ok(results)
     }
