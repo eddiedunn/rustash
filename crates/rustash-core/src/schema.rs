@@ -18,6 +18,7 @@ diesel::table! {
         title -> Nullable<Binary>,
         content -> Nullable<Binary>,
         tags -> Nullable<Binary>,
+        snippets_fts -> Nullable<Binary>,
         rank -> Nullable<Binary>,
     }
 }
