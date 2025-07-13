@@ -1,1 +1,0 @@
-/Users/tmwsiy/code/rustash/PRPs/templates/prp_rustash.md
