@@ -1,97 +1,66 @@
-# 🚀 Rustash User Guide
+# Rustash User Guide
 
-Welcome to Rustash! This guide helps you install, configure, and master the Rustash data platform.
+Welcome to Rustash! This guide shows how to configure Stashes and use the CLI for snippets, RAG search, and graph relationships.
 
 ## Table of Contents
+- [Stash Configuration](#stash-configuration)
+- [Snippet Commands](#snippet-commands)
+- [RAG Commands](#rag-commands)
+- [Graph Commands](#graph-commands)
 
-- [Core Concept: Stashes](#-core-concept-stashes)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [CLI Command Reference](#-command-reference)
-- [Example: Snippet Stash Workflow](#-example-snippet-stash-workflow)
+## Stash Configuration
+Create `~/.config/rustash/stashes.toml` and define one or more stashes.
 
-## 📦 Core Concept: Stashes
+```toml
+# Default stash when --stash is omitted
+default_stash = "my-snippets"
 
-The central concept in Rustash is the **Stash**. A Stash is a named, self-contained data store designed for a specific purpose. Each Stash has:
-- A unique **name** (e.g., `personal_snippets`).
-- A **Service Type** (`Snippet`, `RAG`, or `KnowledgeGraph`), which defines what kind of data it holds and what operations it supports.
-- A **Database URL**, which points to its physical storage (either a local SQLite file or a PostgreSQL server).
+[stashes.my-snippets]
+service_type = "Snippet"
+database_url = "sqlite://snippets.db"
 
-This allows you to manage different kinds of data for different projects, all through a single tool.
+[stashes.my-rag]
+service_type = "RAG"
+database_url = "sqlite://rag.db"
 
-## 🛠️ Installation
+[stashes.my-kg]
+service_type = "KnowledgeGraph"
+database_url = "sqlite://kg.db"
+```
+
+Use `rustash stash list` to view or manage these entries.
+
+## Snippet Commands
+Operate on a `Snippet` stash.
 
 ```bash
-# Install from source (requires Rust toolchain)
-git clone https://github.com/your-repo/rustash.git
-cd rustash
-cargo install --path .
+# Add a snippet
+rustash --stash my-snippets snippets add "Greet" "echo hi" --tags example
+
+# List snippets
+rustash --stash my-snippets snippets list
 ```
 
-## ⚙️ Configuration
+## RAG Commands
+Operate on a `RAG` stash for vector search.
 
-Rustash is configured via a TOML file located at `~/.config/rustash/stashes.toml`.
+```bash
+# Add a document
+rustash --stash my-rag rag add --path doc.txt --title "Doc"
 
-1.  Create the directory: `mkdir -p ~/.config/rustash`
-2.  Create the file: `touch ~/.config/rustash/stashes.toml`
-3.  Add your stash definitions to the file.
-
-**Example `stashes.toml`:**
-```toml
-# Set the default stash to use when the --stash flag is omitted
-default_stash = "my_snippets"
-
-# A local stash for your code snippets
-[stashes.my_snippets]
-service_type = "Snippet"
-database_url = "sqlite:///Users/your_user/.rustash_data/snippets.db"
-
-# A shared team stash for a RAG system on Postgres
-[stashes.team_rag]
-service_type = "RAG"
-database_url = "postgres://user:pass@db.example.com/rag_db"
+# Query similar documents
+rustash --stash my-rag rag query --text "some text" --limit 5
 ```
 
-## ⌨️ CLI Command Reference
+## Graph Commands
+Operate on a `KnowledgeGraph` stash.
 
-The standard command structure is: `rustash [GLOBAL OPTIONS] <SERVICE> <COMMAND>`
+```bash
+# Link two snippet UUIDs
+rustash --stash my-kg graph link --from <UUID_A> --to <UUID_B> --relation CONNECTS_TO
 
-**Global Option:**
-- `--stash <NAME>`: Specifies which stash to use for the command. If omitted, the `default_stash` from your config is used.
+# List neighbors of a snippet
+rustash --stash my-kg graph neighbors --id <UUID_A>
+```
 
-### Stash Management (`rustash stash ...`)
-
-- `rustash stash list`: Lists all stashes defined in your config file.
-- `rustash stash add <name> --service-type <type> --database-url <url>`: Adds a new stash to your config.
-- `rustash stash remove <name>`: Removes a stash from your config.
-- `rustash stash set-default <name>`: Sets the default stash.
-
-### Snippet Service (`rustash snippets ...`)
-
-These commands operate on a stash with `service_type = "Snippet"`.
-
-- `rustash snippets add <title> <content> --tags <t1,t2>`: Add a new snippet.
-- `rustash snippets list --filter "text" --tag "tag"`: List and search snippets.
-- `rustash snippets use <uuid> --var key=value`: Use a snippet, expanding placeholders and copying it to the clipboard.
-
-*(Note: `RAG` and `KnowledgeGraph` service commands will be documented here as they are implemented.)*
-
-## ✨ Example: Snippet Stash Workflow
-
-1.  **Configure a snippet stash:** Add a `[stashes.my_snippets]` section to your `stashes.toml`.
-
-2.  **Add a snippet:**
-    ```bash
-    rustash --stash my_snippets snippets add "Greeting" "Hello, {{name}}!" --tags example
-    ```
-
-3.  **List your snippets:**
-    ```bash
-    rustash --stash my_snippets snippets list
-    ```
-
-4.  **Use your snippet:**
-    ```bash
-    # This will prompt you for the 'name' variable interactively
-    rustash --stash my_snippets snippets use <uuid-from-list> --interactive
-    ```
+Enjoy using Rustash!

@@ -26,12 +26,14 @@ chrono = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["full"] }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 log = "0.4"
-bincode = "1"
+bincode = "1.3"
 
 # Connection pooling
 bb8 = { version = "0.8", optional = true }
 bb8-postgres = { version = "0.8", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
 
 # Platform-specific paths
 home = "0.5"
@@ -62,7 +64,9 @@ sqlite = [
 postgres = [
     "diesel/postgres",
     "bb8",
-    "diesel-async/postgres"
+    "diesel-async/postgres",
+    "tokio-postgres",
+    "bb8-postgres"
 ]
 
 # Vector search (experimental)
