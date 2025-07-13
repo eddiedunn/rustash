@@ -45,19 +45,19 @@ pub enum Error {
     /// IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     /// Async runtime errors
     #[error("Runtime error: {0}")]
     Runtime(String),
-    
+
     /// Bincode serialization/deserialization errors
     #[error("Bincode error: {0}")]
     Bincode(#[from] bincode::Error),
-    
+
     /// Connection pool errors
     #[error("Connection pool error: {0}")]
     Pool(String),
-    
+
     /// PostgreSQL errors
     #[error("PostgreSQL error: {0}")]
     #[cfg(feature = "postgres")]
@@ -78,10 +78,6 @@ pub enum Error {
     /// Permission/authorization errors
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-
-    /// Bincode serialization/deserialization errors
-    #[error("Bincode error: {0}")]
-    Bincode(#[from] Box<bincode::ErrorKind>),
 
     /// Generic error for other cases
     #[error("Error: {0}")]
@@ -108,8 +104,7 @@ pub trait UuidExt {
 
 impl UuidExt for str {
     fn parse_uuid(&self) -> Result<Uuid> {
-        self.parse::<Uuid>()
-            .map_err(Error::InvalidUuid)
+        self.parse::<Uuid>().map_err(Error::InvalidUuid)
     }
 }
 
