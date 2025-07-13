@@ -4,7 +4,7 @@ use super::StorageBackend;
 use crate::{
     database::PostgresPool,
     error::{Error, Result},
-    models::Snippet,
+    models::{Snippet, SnippetWithTags},
 };
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
@@ -214,47 +214,44 @@ impl StorageBackend for PostgresBackend {
         &self,
         embedding: &[f32],
         limit: usize,
-    ) -> Result<
-        Vec<(
-            Box<dyn crate::memory::MemoryItem + Send + Sync + 'static>,
-            f32,
-        )>,
-    > {
-        use diesel::prelude::*;
+    ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
+        use diesel::sql_types::{BigInt, Bytea, Float};
+        use pgvector::Vector;
+
+        let query_vector = Vector::from(embedding.to_vec());
+
+        // This query calculates the L2 distance between the stored embedding
+        // and the query vector, ordering by that distance to find the nearest neighbors.
+        let query = diesel::sql_query(
+            "SELECT *, embedding <-> $1 AS distance FROM snippets
+             WHERE embedding IS NOT NULL
+             ORDER BY distance ASC
+             LIMIT $2",
+        )
+        .bind::<pgvector::sql_types::Vector, _>(&query_vector)
+        .bind::<BigInt, _>(limit as i64);
+
+        #[derive(QueryableByName)]
+        struct SnippetWithDistance {
+            #[diesel(embed)]
+            snippet: Snippet,
+            #[diesel(sql_type = "Float")]
+            distance: f32,
+        }
 
         let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
+        let rows: Vec<SnippetWithDistance> = query.load(&mut conn).await?;
 
-        // Convert the embedding to a byte array for storage
-        let embedding_bytes = bincode::serialize(embedding)
-            .map_err(|e| Error::other(format!("Failed to serialize embedding: {}", e)))?;
-
-        // Use the pgvector extension for similarity search
-        // Note: This requires the pgvector extension to be installed in your PostgreSQL database
-        let query = r#"
-            SELECT *, 
-                   embedding <-> $1::vector AS distance
-            FROM snippets
-            WHERE embedding IS NOT NULL
-            ORDER BY distance
-            LIMIT $2
-        "#;
-
-        let rows = sql_query(query)
-            .bind::<diesel::sql_types::Binary, _>(&embedding_bytes)
-            .bind::<diesel::sql_types::BigInt, _>(limit as i64)
-            .load::<diesel::pg::PgRow>(&mut conn)
-            .await
-            .map_err(|e| Error::other(format!("Failed to perform vector search: {}", e)))?;
-
-        for row in rows {
-            let distance: f32 = row.get("distance").map_err(Error::from)?;
-            let snippet = self.row_to_snippet(row)?;
-            results.push((
-                Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
-                distance,
-            ));
-        }
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let with_tags: SnippetWithTags = row.snippet.into();
+                (
+                    Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
+                    row.distance,
+                )
+            })
+            .collect();
 
         Ok(results)
     }
