@@ -8,28 +8,28 @@
 pub mod connection_pool;
 
 // Re-export commonly used types
+pub use diesel_async::AsyncConnection;
 #[cfg(feature = "postgres")]
 pub use diesel_async::AsyncPgConnection;
 #[cfg(feature = "sqlite")]
 pub use diesel_async::AsyncSqliteConnection;
-pub use diesel_async::AsyncConnection;
 
 // Re-export connection pool types
 pub use connection_pool::DbConnectionPool;
 
-/// Database connection types based on the enabled feature
+/// Database connection types based on the enabled feature.
 #[cfg(feature = "sqlite")]
-pub type Connection = AsyncSqliteConnection;
+pub type SqlitePool = DbConnectionPool<AsyncSqliteConnection>;
 
 #[cfg(feature = "postgres")]
-pub type Connection = AsyncPgConnection;
+pub type PostgresPool = DbConnectionPool<AsyncPgConnection>;
 
-/// A type alias for the database connection pool based on the enabled feature
-#[cfg(feature = "sqlite")]
-pub type DbPool = DbConnectionPool<AsyncSqliteConnection>;
+/// Connection pool type alias used when exactly one backend feature is enabled.
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub type DbPool = SqlitePool;
 
-#[cfg(feature = "postgres")]
-pub type DbPool = DbConnectionPool<AsyncPgConnection>;
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+pub type DbPool = PostgresPool;
 
 /// Create a new database connection pool for the given URL.
 ///
@@ -41,11 +41,23 @@ pub async fn create_connection_pool(database_url: &str) -> Result<DbPool, crate:
     {
         DbConnectionPool::<AsyncSqliteConnection>::new(database_url).await
     }
-    
+
     #[cfg(feature = "postgres")]
     {
         DbConnectionPool::<AsyncPgConnection>::new(database_url).await
     }
+}
+
+/// Backwards-compatible wrapper around `create_connection_pool`.
+pub async fn create_pool(database_url: &str) -> Result<DbPool, crate::error::Error> {
+    create_connection_pool(database_url).await
+}
+
+/// Run database migrations for the given connection pool.
+///
+/// This is currently a no-op placeholder.
+pub async fn run_migrations(_pool: &DbPool) -> Result<(), crate::error::Error> {
+    Ok(())
 }
 
 /// Create a test database connection pool for integration tests.
@@ -55,14 +67,14 @@ pub async fn create_test_pool() -> Result<DbPool, crate::error::Error> {
         // Use an in-memory database for tests
         DbConnectionPool::<AsyncSqliteConnection>::new(":memory:").await
     }
-    
+
     #[cfg(feature = "postgres")]
     {
         use std::env;
-        
+
         let database_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/test".to_string());
-            
+
         DbConnectionPool::<AsyncPgConnection>::new(&database_url).await
     }
 }
@@ -76,13 +88,13 @@ mod tests {
     async fn test_connection_pool() -> Result<()> {
         let pool = create_test_pool().await?;
         let mut conn = pool.get_connection().await?;
-        
+
         // Test that we can execute a simple query
         let result: i32 = sql_query("SELECT 1")
             .get_result(&mut *conn)
             .await
             .map_err(|e| crate::error::Error::other(format!("Query failed: {}", e)))?;
-            
+
         assert_eq!(result, 1);
         Ok(())
     }
