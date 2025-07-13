@@ -1,12 +1,12 @@
-use rustash_core::database::create_test_pool;
 use diesel::prelude::*;
 use diesel::sql_query;
+use rustash_core::database::create_test_pool;
 
-#[test]
-fn check_applied_migrations() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::test]
+async fn check_applied_migrations() -> Result<(), Box<dyn std::error::Error>> {
     // Create a test pool
-    let pool = create_test_pool()?;
-    let mut conn = pool.get()?;
+    let pool = create_test_pool().await?;
+    let mut conn = pool.get_connection().await?;
 
     // Query the migrations table
     #[derive(QueryableByName, Debug)]
@@ -17,9 +17,10 @@ fn check_applied_migrations() -> Result<(), Box<dyn std::error::Error>> {
         run_on: bool,
     }
 
-    let migrations: Vec<Migration> = sql_query(
-        "SELECT version, run_on FROM __diesel_schema_migrations ORDER BY version"
-    ).load(&mut *conn)?;
+    let migrations: Vec<Migration> =
+        sql_query("SELECT version, run_on FROM __diesel_schema_migrations ORDER BY version")
+            .load(&mut *conn)
+            .await?;
 
     println!("Applied migrations:");
     for migration in migrations {
