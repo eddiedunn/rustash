@@ -59,6 +59,8 @@ clap_complete = { workspace = true }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
+assert_cmd = "2.0"
+predicates = "3.1"
 # GUI testing temporarily disabled due to egui_test not being available on crates.io
 serial_test = "2.0"
 

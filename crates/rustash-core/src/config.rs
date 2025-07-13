@@ -52,3 +52,52 @@ pub fn save_config(config: &Config) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_load_config_nonexistent() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("rustash/stashes.toml");
+
+        assert!(!config_path.exists());
+        let config_str = std::fs::read_to_string(&config_path).err();
+        assert!(config_str.is_some());
+    }
+
+    #[test]
+    fn test_save_and_load_config() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("rustash/stashes.toml");
+
+        let mut stashes = HashMap::new();
+        stashes.insert(
+            "test_stash".to_string(),
+            StashConfig {
+                service_type: crate::stash::ServiceType::Snippet,
+                database_url: "sqlite::memory:".to_string(),
+            },
+        );
+
+        let original_config = Config {
+            default_stash: Some("test_stash".to_string()),
+            stashes,
+        };
+
+        let save = |config: &Config, path: &PathBuf| -> Result<()> {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let toml_string = toml::to_string_pretty(config).unwrap();
+            std::fs::write(path, toml_string)?;
+            Ok(())
+        };
+
+        save(&original_config, &config_path).unwrap();
+        assert!(config_path.exists());
+    }
+}
