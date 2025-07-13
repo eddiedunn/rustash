@@ -257,45 +257,19 @@ impl StorageBackend for PostgresBackend {
     }
 
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
-        use diesel::prelude::*;
-
-        let from_str = from.to_string();
-        let to_str = to.to_string();
         let mut conn = self.get_conn().await?;
+        // AGE requires that we match nodes and then create relationships.
+        // We assume snippets are vertices labeled 'Snippet' with a 'uuid' property.
+        let cypher_query = format!(
+            "MATCH (a:Snippet {{uuid: '{}'}}), (b:Snippet {{uuid: '{}'}})
+             CREATE (a)-[:{}]->(b)",
+            from, to, relation_type
+        );
+        let query =
+            diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (v agtype);")
+                .bind::<diesel::sql_types::Text, _>(cypher_query);
 
-        // First, ensure the relation table exists
-        sql_query(
-            r#"
-            CREATE TABLE IF NOT EXISTS snippet_relations (
-                from_uuid TEXT NOT NULL,
-                to_uuid TEXT NOT NULL,
-                relation_type TEXT NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (from_uuid, to_uuid, relation_type),
-                FOREIGN KEY (from_uuid) REFERENCES snippets(uuid) ON DELETE CASCADE,
-                FOREIGN KEY (to_uuid) REFERENCES snippets(uuid) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&mut conn)
-        .await
-        .map_err(|e| Error::other(format!("Failed to create relations table: {}", e)))?;
-
-        // Add the relation
-        let query = r#"
-            INSERT INTO snippet_relations (from_uuid, to_uuid, relation_type)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (from_uuid, to_uuid, relation_type) DO NOTHING
-        "#;
-
-        sql_query(query)
-            .bind::<Text, _>(&from_str)
-            .bind::<Text, _>(&to_str)
-            .bind::<Text, _>(relation_type)
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::other(format!("Failed to add relation: {}", e)))?;
-
+        query.execute(&mut conn).await?;
         Ok(())
     }
 
@@ -304,61 +278,45 @@ impl StorageBackend for PostgresBackend {
         id: &Uuid,
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::prelude::*;
-
-        let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
 
-        // First, check if the relations table exists
-        let table_exists: bool = sql_query(
-            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'snippet_relations')"
-        )
-        .get_result::<bool>(&mut conn)
-        .await
-        .unwrap_or(false);
-
-        if !table_exists {
-            return Ok(Vec::new());
-        }
-
-        // Build the query based on whether we're filtering by relation type
-        let (query, params) = if let Some(rel_type) = relation_type {
-            (
-                "
-                SELECT s.* FROM snippets s
-                JOIN snippet_relations r ON s.uuid = r.to_uuid
-                WHERE r.from_uuid = $1 AND r.relation_type = $2
-                ORDER BY r.created_at DESC
-                "
-                .to_string(),
-                vec![
-                    Box::new(id_str) as Box<dyn diesel::query_builder::QueryFragment<Pg> + Send>,
-                    Box::new(rel_type.to_string()) as _,
-                ],
-            )
-        } else {
-            (
-                "
-                SELECT s.* FROM snippets s
-                JOIN snippet_relations r ON s.uuid = r.to_uuid
-                WHERE r.from_uuid = $1
-                ORDER BY r.created_at DESC
-                "
-                .to_string(),
-                vec![Box::new(id_str) as Box<dyn diesel::query_builder::QueryFragment<Pg> + Send>],
-            )
+        // The relation part of the MATCH pattern is dynamic.
+        let relation_pattern = match relation_type {
+            Some(rt) => format!("-[:{}]->", rt),
+            None => "-->".to_string(),
         };
 
-        // Execute the query
-        let rows = conn.query(&query, &params[..]).await?;
+        let cypher_query = format!(
+            "MATCH (a:Snippet {{uuid: '{}'}}){} (b:Snippet) RETURN b.uuid",
+            id, relation_pattern
+        );
+        let query =
+            diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (uuid agtype);")
+                .bind::<diesel::sql_types::Text, _>(cypher_query);
 
-        // Process results
-        let mut results = Vec::new();
-        for row in rows {
-            let snippet = self.row_to_snippet(row)?;
-            results.push(Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>);
+        #[derive(QueryableByName)]
+        struct RelatedUuid {
+            #[diesel(sql_type = "diesel::sql_types::Text")]
+            uuid: String,
         }
+
+        let related_uuids: Vec<RelatedUuid> = query.load(&mut conn).await?;
+        let uuids: Vec<String> = related_uuids.into_iter().map(|r| r.uuid).collect();
+
+        if uuids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Now fetch the full snippet details for the related UUIDs
+        let snippets = crate::schema::snippets::table
+            .filter(crate::schema::snippets::uuid.eq_any(uuids))
+            .load::<Snippet>(&mut conn)
+            .await?;
+
+        let results = snippets
+            .into_iter()
+            .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
+            .collect();
 
         Ok(results)
     }
