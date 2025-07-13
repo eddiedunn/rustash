@@ -3,8 +3,10 @@
 pub mod config;
 pub mod database;
 pub mod error;
+pub mod graph;
 pub mod memory;
 pub mod models;
+pub mod rag;
 pub mod schema;
 pub mod snippet;
 pub mod stash;
@@ -26,7 +28,7 @@ pub use storage::postgres::PostgresBackend;
 #[cfg(feature = "sqlite")]
 pub use storage::sqlite::SqliteBackend;
 
-pub use snippet::{expand_placeholders, validate_snippet_content};
+pub use snippet::{expand_placeholders, validate_snippet_content, SnippetService};
 
 #[cfg(feature = "vector-search")]
 pub use search::search_similar_snippets;

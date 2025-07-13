@@ -8,7 +8,7 @@ mod utils;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use commands::SnippetCommands;
+use commands::{GraphCommand, RagCommand, SnippetCommands};
 use rustash_core::stash::{ServiceType, Stash};
 use std::sync::Arc;
 
@@ -33,6 +33,14 @@ pub enum Commands {
     /// Manage snippets in a Snippet-type stash
     #[command(alias = "s")]
     Snippets(commands::SnippetCommand),
+
+    /// Interact with a RAG-type stash
+    #[command(alias = "r")]
+    Rag(commands::RagCommand),
+
+    /// Interact with a KnowledgeGraph-type stash
+    #[command(alias = "g")]
+    Graph(commands::GraphCommand),
 
     /// Manage stashes
     #[command(alias = "st")]
@@ -64,6 +72,24 @@ async fn main() -> Result<()> {
             anyhow::ensure!(
                 stash.config.service_type == ServiceType::Snippet,
                 "The stash '{}' is a '{:?}' stash, but this command requires a 'Snippet' stash.",
+                stash.name,
+                stash.config.service_type
+            );
+            cmd.execute(stash.backend.clone()).await?;
+        }
+        Commands::Rag(cmd) => {
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::RAG,
+                "The stash '{}' is a '{:?}' stash, but this command requires a 'RAG' stash.",
+                stash.name,
+                stash.config.service_type
+            );
+            cmd.execute(stash.backend.clone()).await?;
+        }
+        Commands::Graph(cmd) => {
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::KnowledgeGraph,
+                "The stash '{}' is a '{:?}' stash, but this command requires a 'KnowledgeGraph' stash.",
                 stash.name,
                 stash.config.service_type
             );
