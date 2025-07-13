@@ -26,7 +26,7 @@ pub use storage::postgres::PostgresBackend;
 #[cfg(feature = "sqlite")]
 pub use storage::sqlite::SqliteBackend;
 
-pub use snippet::expand_placeholders;
+pub use snippet::{expand_placeholders, validate_snippet_content};
 
 #[cfg(feature = "vector-search")]
 pub use search::search_similar_snippets;
