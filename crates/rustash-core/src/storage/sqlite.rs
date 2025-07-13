@@ -174,26 +174,14 @@ impl StorageBackend for SqliteBackend {
     }
 
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
-        use diesel::sql_types::Text;
-        use diesel_async::RunQueryDsl;
-
-        let mut conn = self.get_conn().await?;
-
-        sql_query(
-            "CREATE TABLE IF NOT EXISTS relations (from_uuid TEXT NOT NULL, to_uuid TEXT NOT NULL, relation_type TEXT NOT NULL)",
+        let query = diesel::sql_query(
+            "INSERT OR IGNORE INTO relations (from_uuid, to_uuid, relation_type) VALUES (?, ?, ?)",
         )
-        .execute(&mut *conn)
-        .await
-        .map_err(Error::from)?;
-
-        sql_query("INSERT INTO relations (from_uuid, to_uuid, relation_type) VALUES (?1, ?2, ?3)")
-            .bind::<Text, _>(from.to_string())
-            .bind::<Text, _>(to.to_string())
-            .bind::<Text, _>(relation_type)
-            .execute(&mut *conn)
-            .await
-            .map_err(Error::from)?;
-
+        .bind::<diesel::sql_types::Text, _>(from.to_string())
+        .bind::<diesel::sql_types::Text, _>(to.to_string())
+        .bind::<diesel::sql_types::Text, _>(relation_type);
+        let mut conn = self.get_conn().await?;
+        query.execute(&mut *conn).await?;
         Ok(())
     }
 
@@ -256,43 +244,23 @@ impl StorageBackend for SqliteBackend {
         id: &Uuid,
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::sql_types::Text;
-        use diesel_async::RunQueryDsl;
-
         let mut conn = self.get_conn().await?;
-
-        sql_query(
-            "CREATE TABLE IF NOT EXISTS relations (from_uuid TEXT NOT NULL, to_uuid TEXT NOT NULL, relation_type TEXT NOT NULL)",
+        let mut query = diesel::sql_query(
+            "SELECT s.* FROM snippets s JOIN relations r ON s.uuid = r.to_uuid WHERE r.from_uuid = ?"
         )
-        .execute(&mut *conn)
-        .await
-        .map_err(Error::from)?;
+        .bind::<diesel::sql_types::Text, _>(id.to_string());
+        if let Some(rel_type) = relation_type {
+            query = query
+                .sql(" AND r.relation_type = ?")
+                .bind::<diesel::sql_types::Text, _>(rel_type);
+        }
 
-        let query = if let Some(rel) = relation_type {
-            sql_query(
-                "SELECT s.* FROM snippets s JOIN relations r ON s.uuid = r.to_uuid WHERE r.from_uuid = ?1 AND r.relation_type = ?2",
-            )
-            .bind::<Text, _>(id.to_string())
-            .bind::<Text, _>(rel)
-        } else {
-            sql_query(
-                "SELECT s.* FROM snippets s JOIN relations r ON s.uuid = r.to_uuid WHERE r.from_uuid = ?1",
-            )
-            .bind::<Text, _>(id.to_string())
-        };
-
-        let rows = query
-            .load::<Snippet>(&mut *conn)
-            .await
-            .map_err(Error::from)?;
-
-        Ok(rows
+        let snippets: Vec<Snippet> = query.load(&mut *conn).await?;
+        let results = snippets
             .into_iter()
-            .map(|s| {
-                let with_tags: SnippetWithTags = s.into();
-                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
-            })
-            .collect())
+            .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
+            .collect();
+        Ok(results)
     }
 }
 
