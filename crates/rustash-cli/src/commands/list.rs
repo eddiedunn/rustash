@@ -33,7 +33,11 @@ impl ListCommand {
         let snippets_dyn = backend.query(&query).await?;
         let snippets: Vec<_> = snippets_dyn
             .iter()
-            .filter_map(|item| item.as_any().downcast_ref::<rustash_core::SnippetWithTags>().cloned())
+            .filter_map(|item| {
+                item.as_any()
+                    .downcast_ref::<rustash_core::models::SnippetWithTags>()
+                    .cloned()
+            })
             .collect();
 
         if snippets.is_empty() {
