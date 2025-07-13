@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 // Command modules
 pub mod add;
 pub mod list;
+pub mod snippets;
 pub mod stash_cmds;
 pub mod use_snippet;
 

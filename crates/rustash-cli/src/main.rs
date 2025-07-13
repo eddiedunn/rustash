@@ -6,8 +6,9 @@ mod fuzzy;
 mod gui;
 mod utils;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use commands::SnippetCommands;
 use rustash_core::stash::{ServiceType, Stash};
 use std::sync::Arc;
 
@@ -30,11 +31,11 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Manage snippets in a Snippet-type stash
-    #[command(alias="s")]
+    #[command(alias = "s")]
     Snippets(commands::SnippetCommand),
-    
+
     /// Manage stashes
-    #[command(alias="st")]
+    #[command(alias = "st")]
     Stash(commands::StashCommand),
 }
 
@@ -47,29 +48,30 @@ async fn main() -> Result<()> {
         return commands::stash_cmds::execute_stash_command(cmd.command, config).await;
     }
 
-    let stash_name = cli.stash.or(config.default_stash)
-        .context("No stash specified and no default_stash is set. Use `rustash stash list` to see options.")?;
+    let stash_name = cli.stash.or(config.default_stash).context(
+        "No stash specified and no default_stash is set. Use `rustash stash list` to see options.",
+    )?;
 
-    let stash_config = config.stashes.get(&stash_name)
+    let stash_config = config
+        .stashes
+        .get(&stash_name)
         .with_context(|| format!("Stash '{}' not found in your configuration.", stash_name))?;
 
     let stash = Arc::new(Stash::new(&stash_name, stash_config.clone()).await?);
 
     match cli.command {
         Commands::Snippets(cmd) => {
-            anyhow::ensure!(stash.config.service_type == ServiceType::Snippet,
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::Snippet,
                 "The stash '{}' is a '{:?}' stash, but this command requires a 'Snippet' stash.",
-                stash.name, stash.config.service_type
+                stash.name,
+                stash.config.service_type
             );
-            
-            let backend = Arc::new(stash.backend);
-            match cmd.command {
-                commands::SnippetCommands::Add(sub_cmd) => sub_cmd.execute(backend).await?,
-                commands::SnippetCommands::List(sub_cmd) => sub_cmd.execute(backend).await?,
-                commands::SnippetCommands::Use(sub_cmd) => sub_cmd.execute(backend).await?,
-            }
-        },
-        Commands::Stash(_) => unreachable!(),
+            commands::snippets::execute_snippet_command(cmd.command, stash.backend.clone()).await?;
+        }
+        Commands::Stash(cmd) => {
+            commands::stash_cmds::execute_stash_command(cmd.command, config).await?;
+        }
     }
 
     Ok(())

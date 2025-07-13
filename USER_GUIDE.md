@@ -91,6 +91,10 @@ service_type = "Snippet"
 database_url = "sqlite://~/.config/rustash/rustash.db"
 ```
 
+Each stash specifies a `service_type` (like `Snippet`) and a `database_url` for
+its storage backend. Set `default_stash` to the name you want to use when the
+`--stash` flag is omitted.
+
 CLI syntax:
 
 ```bash
@@ -117,65 +121,65 @@ rustash --stash <name> <service> <command> [options]
 
 ```bash
 # Basic usage
-rustash add "Title" "Content" --tags tag1,tag2
+rustash --stash main snippets add "Title" "Content" --tags tag1,tag2
 
 # From clipboard (macOS)
-pbpaste | rustash add "From Clipboard" --stdin --tags clipboard
+pbpaste | rustash --stash main snippets add "From Clipboard" --stdin --tags clipboard
 
 # With description
-rustash add "Title" "Content" --description "Detailed description" --tags docs
+rustash --stash main snippets add "Title" "Content" --description "Detailed description" --tags docs
 ```
 
 ### Find Snippets
 
 ```bash
 # List all snippets
-rustash list
+rustash --stash main snippets list
 
 # Search by content or title
-rustash list --filter "docker compose"
+rustash --stash main snippets list --filter "docker compose"
 
 # Filter by tag
-rustash list --tag git
+rustash --stash main snippets list --tag git
 
 # Interactive search (requires fzf)
-rustash list --interactive
+rustash --stash main snippets list --interactive
 
 # Output formats
-rustash list --format json    # JSON output
-rustash list --format compact # Compact list
+rustash --stash main snippets list --format json    # JSON output
+rustash --stash main snippets list --format compact # Compact list
 ```
 
 ### Use Snippets
 
 ```bash
 # Copy to clipboard (default)
-rustash use 1
+rustash --stash main snippets use 1
 
 # Print to terminal
-rustash use 1 --print-only
+rustash --stash main snippets use 1 --print-only
 
 # Fill placeholders
-rustash use 1 --var name=value
+rustash --stash main snippets use 1 --var name=value
 
 # Interactive mode (prompts for missing variables)
-rustash use 1 --interactive
+rustash --stash main snippets use 1 --interactive
 ```
 
 ### Manage Snippets
 
 ```bash
 # Edit a snippet (opens $EDITOR)
-rustash edit 1
+rustash --stash main snippets edit 1
 
 # Delete a snippet
-rustash delete 1
+rustash --stash main snippets delete 1
 
 # Export snippets to JSON
-rustash export > snippets.json
+rustash --stash main snippets export > snippets.json
 
 # Import from JSON
-rustash import < snippets.json
+rustash --stash main snippets import < snippets.json
 ```
 
 ## 🔒 Security Best Practices
@@ -186,12 +190,12 @@ rustash import < snippets.json
 - Use environment variables for sensitive data:
   ```bash
   # Instead of:
-  # rustash add "DB Connect" "psql -U myuser -p mypassword"
+  # rustash --stash main snippets add "DB Connect" "psql -U myuser -p mypassword"
   
   # Do this:
-  rustash add "DB Connect" "psql -U {{db_user}} -p {{db_pass}}"
+  rustash --stash main snippets add "DB Connect" "psql -U {{db_user}} -p {{db_pass}}"
   # Then provide values when using:
-  # DB_USER=user DB_PASS=pass rustash use X --var db_user=$DB_USER --var db_pass=$DB_PASS
+  # DB_USER=user DB_PASS=pass rustash --stash main snippets use X --var db_user=$DB_USER --var db_pass=$DB_PASS
   ```
 
 ### Database Security
@@ -239,7 +243,7 @@ Yes! Set the `DATABASE_URL` environment variable to switch between databases:
 ```bash
 # Work with a different database
 export DATABASE_URL=~/work/snippets.db
-rustash list
+rustash --stash main snippets list
 ```
 
 ### How do I upgrade Rustash?
@@ -288,7 +292,7 @@ cp ~/.config/rustash/rustash.db ~/backups/rustash-backup-$(date +%Y%m%d).db
 Yes! The `--print-only` flag for the `use` command is designed for this purpose. It outputs the expanded snippet to standard output, which can be piped or captured in a variable.
 ```bash
 # Example script usage
-PASSWORD=$(rustash use 123 --var user=prod --print-only)
+PASSWORD=$(rustash --stash main snippets use 123 --var user=prod --print-only)
 psql -U prod -p $PASSWORD
 ```
 
@@ -305,21 +309,21 @@ Rustash now features enhanced search capabilities powered by SQLite's FTS5 full-
 
 ```bash
 # General search for "database" in title or content
-rustash list --filter "database"
+rustash --stash main snippets list --filter "database"
 
 # Search for snippets tagged "sql"
 # This is now as fast as a text search!
-rustash list --tag "sql"
+rustash --stash main snippets list --tag "sql"
 
 # Combined search: find snippets with "postgres" in the text AND tagged "backup"
-rustash list --filter "postgres" --tag "backup"
+rustash --stash main snippets list --filter "postgres" --tag "backup"
 
 # Search for an exact phrase using quotes
-rustash list --filter '\"database migration\"'
+rustash --stash main snippets list --filter '\"database migration\"'
 
 # Use boolean operators (NOTE: must be uppercase)
-rustash list --filter "postgres OR mysql"
-rustash list --filter "backup AND NOT nightly"
+rustash --stash main snippets list --filter "postgres OR mysql"
+rustash --stash main snippets list --filter "backup AND NOT nightly"
 ```
 
 ### Search Syntax
@@ -417,14 +421,14 @@ Once installed, you can get started right away.
 2.  **Add a Snippet:**
     Let's add a Git commit template with a placeholder.
     ```bash
-    rustash add "Git Commit" "git commit -m '{{message}}'" --tags git,template
+    rustash --stash main snippets add "Git Commit" "git commit -m '{{message}}'" --tags git,template
     ```
     > ✓ Added snippet 'Git Commit' with ID: 1
     >   Tags: git, template
 
 3.  **List Your Snippets:**
     ```bash
-    rustash list
+    rustash --stash main snippets list
     ```
     > ID   Title         Tags              Updated
     > ──── ───────────── ───────────────── ───────────────
@@ -433,14 +437,14 @@ Once installed, you can get started right away.
 4.  **Use Your Snippet:**
     Now, use the snippet and fill in the `{{message}}` placeholder.
     ```bash
-    rustash use 1 --var message="feat: Add new user profile page"
+    rustash --stash main snippets use 1 --var message="feat: Add new user profile page"
     ```
     The command will print the expanded snippet and copy `git commit -m 'feat: Add new user profile page'` to your clipboard.
 
 5.  **Interactive Use:**
     If you don't provide variables, use interactive mode to be prompted for them.
     ```bash
-    rustash use 1 --interactive
+    rustash --stash main snippets use 1 --interactive
     ```
     > Enter value for 'message': `refactor: Improve database queries`
 
@@ -450,13 +454,13 @@ Once installed, you can get started right away.
 A snippet is a piece of text with a `title`, `content`, and one or more `tags`.
 
 ### Placeholders
-Snippet content can contain dynamic placeholders using `{{variable_name}}` syntax. These are replaced with values when you use the `rustash use` command.
+Snippet content can contain dynamic placeholders using `{{variable_name}}` syntax. These are replaced with values when you run `rustash --stash <name> snippets use`.
 
 **Security Consideration**: Be cautious when using placeholders in commands, especially with untrusted input, as they could be used for command injection if the resulting command is executed in a shell.
 
 **Example:**
 Snippet Content: `ssh {{user}}@{{host}}`
-Command: `rustash use 2 --var user=admin --var host=server1.com`
+Command: `rustash --stash main snippets use 2 --var user=admin --var host=server1.com`
 Result: `ssh admin@server1.com`
 
 ### Search and Filtering
@@ -492,11 +496,11 @@ When using Rustash, follow these security best practices:
 
 ## 6. Command Reference
 
-### `rustash add`
+### `rustash --stash <name> snippets add`
 Adds a new snippet to the database.
 
 ```
-Usage: rustash add [OPTIONS] <TITLE> <CONTENT>
+Usage: rustash --stash main snippets add [OPTIONS] <TITLE> <CONTENT>
 ```
 **Arguments:**
 *   `<TITLE>`: The title of the snippet.
@@ -509,19 +513,19 @@ Usage: rustash add [OPTIONS] <TITLE> <CONTENT>
 **Examples:**
 ```bash
 # Basic add
-rustash add "Docker Prune" "docker system prune -af" --tags docker,cli
+rustash --stash main snippets add "Docker Prune" "docker system prune -af" --tags docker,cli
 
 # Add multi-line content from a file
-cat script.sh | rustash add "My Script" --stdin --tags shell,script
+cat script.sh | rustash --stash main snippets add "My Script" --stdin --tags shell,script
 ```
 
 ---
 
-### `rustash list`
+### `rustash --stash <name> snippets list`
 Lists and searches for snippets.
 
 ```
-Usage: rustash list [OPTIONS]
+Usage: rustash --stash main snippets list [OPTIONS]
 ```
 
 **Options:**
@@ -539,25 +543,25 @@ Usage: rustash list [OPTIONS]
 **Examples:**
 ```bash
 # List all snippets in a table
-rustash list
+rustash --stash main snippets list
 
 # Find snippets tagged 'rust' in a compact format
-rustash list --tag rust --format compact
+rustash --stash main snippets list --tag rust --format compact
 
 # Search for snippets (powerful FTS5 search with relevance ranking)
-rustash list --filter "database OR postgres"
+rustash --stash main snippets list --filter "database OR postgres"
 
 # Interactively select a snippet
-rustash list --interactive
+rustash --stash main snippets list --interactive
 ```
 
 ---
 
-### `rustash use`
+### `rustash --stash <name> snippets use`
 Uses a snippet, expanding placeholders and copying it to the clipboard.
 
 ```
-Usage: rustash use [OPTIONS] <ID>
+Usage: rustash --stash main snippets use [OPTIONS] <ID>
 ```
 
 **Arguments:**
@@ -572,13 +576,13 @@ Usage: rustash use [OPTIONS] <ID>
 **Examples:**
 ```bash
 # Use snippet 1 and provide a variable
-rustash use 1 --var name=world
+rustash --stash main snippets use 1 --var name=world
 
 # Use a snippet and get prompted for variables
-rustash use 1 --interactive
+rustash --stash main snippets use 1 --interactive
 
 # Use a snippet but only print it, don't copy
-rustash use 1 --print-only
+rustash --stash main snippets use 1 --print-only
 ```
 
 ## 6. For Developers

@@ -84,6 +84,10 @@ service_type = "Snippet"
 database_url = "sqlite://~/.config/rustash/rustash.db"
 ```
 
+A stash maps a name to a `service_type` and `database_url`, letting you keep multiple
+collections or use different backends. The `default_stash` is used when `--stash`
+is omitted.
+
 Use the `--stash` flag to target one:
 
 ```bash
