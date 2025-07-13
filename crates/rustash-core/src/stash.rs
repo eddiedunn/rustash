@@ -2,10 +2,10 @@
 
 use crate::storage::StorageBackend;
 use crate::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ServiceType {
     Snippet,
     RAG,
