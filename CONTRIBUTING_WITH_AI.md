@@ -1,6 +1,6 @@
 # Contributing to Rustash with AI
 
-Welcome to the Rustash project! This document outlines our innovative AI-driven development methodology that leverages Product Requirement Prompts (PRPs) to guide development. This approach helps maintain consistency, quality, and efficiency across the codebase.
+Welcome to the Rustash project! This document outlines our innovative AI-driven development methodology that leverages Product Requirement Prompts (PRPs) to guide development. This approach helps maintain consistency, quality, and efficiency across the codebase. For general setup instructions see [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md).
 
 ## Table of Contents
 
