@@ -1,158 +1,236 @@
-//! A strongly-typed connection pool implementation for database backends.
+//! A connection pool implementation for database backends.
 //!
-//! This module provides a type-safe wrapper around the connection pool that enforces
-//! compile-time backend selection through feature flags.
+//! This module provides a wrapper around the connection pool that works with
+//! both SQLite and PostgreSQL backends.
 
 use crate::error::{Error, Result};
 use async_trait::async_trait;
-use bb8::Pool;
+use bb8::{Pool, PooledConnection};
 use diesel_async::{
-    pooled_connection::AsyncDieselConnectionManager, AsyncConnection, AsyncPgConnection,
-    AsyncSqliteConnection,
+    pooled_connection::{AsyncDieselConnectionManager, bb8::PoolableConnection as _},
+    AsyncConnection,
 };
 use std::sync::Arc;
+use std::fmt::Debug;
 
 /// A trait representing a database backend connection.
-#[async_trait]
-pub trait DatabaseConnection: AsyncConnection + Send + 'static {
-    /// The type of the connection manager for this backend.
-    type Manager: for<'a> AsyncDieselConnectionManager<Self> + Send + 'static;
-
-    /// The native connection type for this backend.
-    type NativeConnection: AsyncConnection + Send + 'static;
-
-    /// Create a new connection manager for the given database URL.
-    fn create_manager(database_url: &str) -> Result<Self::Manager>;
+/// This is an object-safe trait that can be used with trait objects.
+pub trait DatabaseConnection: Send + Sync + 'static {
+    /// Get a connection from the pool.
+    async fn get_connection(
+        &self,
+    ) -> Result<Box<dyn AsyncConnection + Send + 'static>>;
 
     /// Run any necessary setup for the connection.
-    async fn setup_connection(conn: &mut Self) -> Result<()>;
+    async fn setup_connection(&self, conn: &mut (dyn AsyncConnection + Send + 'static)) -> Result<()>;
 }
 
-/// SQLite database connection implementation.
-#[cfg(feature = "sqlite")]
-#[async_trait]
-impl DatabaseConnection for AsyncSqliteConnection {
-    type Manager = AsyncDieselConnectionManager<Self>;
-    type NativeConnection = AsyncSqliteConnection;
+/// A helper trait for creating database connections.
+/// This is not object-safe but is used during initialization.
+pub trait DatabaseConnectionFactory: Send + Sync + 'static {
+    /// The type of the connection for this backend.
+    type Connection: AsyncConnection + Send + 'static;
 
-    fn create_manager(database_url: &str) -> Result<Self::Manager> {
-        // Ensure the parent directory exists for SQLite file-based databases
-        if !database_url.starts_with("file:")
-            && !database_url.starts_with(":memory:")
-            && !database_url.is_empty()
-        {
-            if let Some(parent) = std::path::Path::new(database_url).parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        Error::other(format!("Failed to create parent directory: {}", e))
-                    })?;
-                }
-            }
-        }
+    /// Create a new connection manager for the given database URL.
+    fn create_manager(database_url: &str) -> Result<AsyncDieselConnectionManager<Self::Connection>>
+    where
+        Self: Sized;
 
-        Ok(AsyncDieselConnectionManager::<Self>::new(database_url))
-    }
-
-    async fn setup_connection(conn: &mut Self) -> Result<()> {
-        use diesel_async::RunQueryDsl;
-        use diesel::sql_query;
-
-        // Enable foreign keys and WAL mode for SQLite
-        sql_query("PRAGMA foreign_keys = ON")
-            .execute(conn)
-            .await
-            .map_err(|e| Error::other(format!("Failed to enable foreign keys: {}", e)))?;
-
-        sql_query("PRAGMA journal_mode = WAL")
-            .execute(conn)
-            .await
-            .map_err(|e| Error::other(format!("Failed to enable WAL mode: {}", e)))?;
-
-        Ok(())
-    }
+    /// Run any necessary setup for the connection.
+    async fn setup_connection(conn: &mut Self::Connection) -> Result<()>;
 }
 
-/// PostgreSQL database connection implementation.
-#[cfg(feature = "postgres")]
-#[async_trait]
-impl DatabaseConnection for AsyncPgConnection {
-    type Manager = AsyncDieselConnectionManager<Self>;
-    type NativeConnection = AsyncPgConnection;
-
-    fn create_manager(database_url: &str) -> Result<Self::Manager> {
-        Ok(AsyncDieselConnectionManager::<Self>::new(database_url))
-    }
-
-    async fn setup_connection(&mut self) -> Result<()> {
-        // PostgreSQL doesn't need any special setup by default
-        Ok(())
-    }
-}
-
-/// A strongly-typed connection pool for a specific database backend.
-pub struct DbConnectionPool<C: DatabaseConnection> {
-    inner: Arc<Pool<C::Manager>>,
-}
-
-impl<C> Clone for DbConnectionPool<C>
+/// A concrete implementation of DatabaseConnection for a specific backend.
+pub struct DatabaseConnectionImpl<C>
 where
-    C: DatabaseConnection,
+    C: AsyncConnection + Send + 'static,
+    AsyncDieselConnectionManager<C>: bb8::ManageConnection,
+    Pool<AsyncDieselConnectionManager<C>>: Sync + Send,
 {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
+    pool: Arc<Pool<AsyncDieselConnectionManager<C>>>,
 }
 
-impl<C> std::fmt::Debug for DbConnectionPool<C>
+impl<C> Debug for DatabaseConnectionImpl<C>
 where
-    C: DatabaseConnection,
+    C: AsyncConnection + Send + 'static,
+    AsyncDieselConnectionManager<C>: bb8::ManageConnection,
+    Pool<AsyncDieselConnectionManager<C>>: Sync + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DbConnectionPool").finish()
+        f.debug_struct("DatabaseConnectionImpl").finish()
     }
 }
 
-impl<C> DbConnectionPool<C>
+#[async_trait]
+impl<C> DatabaseConnection for DatabaseConnectionImpl<C>
 where
-    C: DatabaseConnection,
+    C: AsyncConnection + Send + 'static,
+    AsyncDieselConnectionManager<C>: bb8::ManageConnection,
+    Pool<AsyncDieselConnectionManager<C>>: Sync + Send,
 {
-    /// Create a new connection pool for the given database URL.
-    pub async fn new(database_url: &str) -> Result<Self> {
-        let manager = C::create_manager(database_url)?;
-        let pool = Pool::builder()
-            .build(manager)
-            .await
-            .map_err(|e| Error::other(format!("Failed to create connection pool: {}", e)))?;
+    async fn get_connection(
+        &self,
+    ) -> Result<Box<dyn AsyncConnection + Send + 'static>> {
+        let conn = self.pool.get_owned().await?;
+        Ok(Box::new(conn) as Box<dyn AsyncConnection + Send + 'static>)
+    }
+
+    async fn setup_connection(&self, _conn: &mut (dyn AsyncConnection + Send + 'static)) -> Result<()> {
+        // Default implementation does nothing
+        Ok(())
+    }
+}
+
+impl<C> DatabaseConnectionFactory for DatabaseConnectionImpl<C>
+where
+    C: AsyncConnection + Send + 'static,
+    AsyncDieselConnectionManager<C>: bb8::ManageConnection,
+    Pool<AsyncDieselConnectionManager<C>>: Sync + Send,
+{
+    type Connection = C;
+
+    fn create_manager(database_url: &str) -> Result<AsyncDieselConnectionManager<C>>
+    where
+        Self: Sized,
+    {
+        Ok(AsyncDieselConnectionManager::<C>::new(database_url))
+    }
+
+    async fn setup_connection(conn: &mut Self::Connection) -> Result<()> {
+        // Default implementation does nothing
+        Ok(())
+    }
+}
+
+/// SQLite-specific database connection implementation.
+#[cfg(feature = "sqlite")]
+pub type SqliteConnection = DatabaseConnectionImpl<diesel_async::AsyncSqliteConnection>;
+
+#[cfg(feature = "sqlite")]
+impl SqliteConnection {
+    /// Create a new SQLite connection pool.
+    pub fn new(database_url: &str) -> Result<Self> {
+        use diesel_async::sqlite::AsyncSqliteConnection;
+        use tokio::runtime::Runtime;
+
+        // Create a new runtime for running async code
+        let rt = Runtime::new().map_err(|e| Error::Runtime(e.to_string()))?;
+
+        // Create the connection manager
+        let manager = AsyncDieselConnectionManager::<AsyncSqliteConnection>::new(database_url);
+
+        // Create the connection pool
+        let pool = rt.block_on(async {
+            bb8::Pool::builder()
+                .max_size(10) // Adjust based on your needs
+                .build(manager)
+                .await
+        })?;
 
         // Test the connection
-        let mut conn = pool
-            .get()
-            .await
-            .map_err(|e| Error::other(format!("Failed to get connection from pool: {}", e)))?;
+        rt.block_on(async {
+            let mut conn = pool.get_owned().await?;
+            Self::setup_connection(&mut *conn).await?;
+            Ok::<_, Error>(())
+        })?;
 
-        // Run any necessary setup
-        C::setup_connection(&mut *conn).await?;
+        Ok(Self { pool: Arc::new(pool) })
+    }
 
+    /// Set up SQLite-specific connection settings
+    pub async fn setup_connection(conn: &mut diesel_async::AsyncSqliteConnection) -> Result<()> {
+        use diesel_async::RunQueryDsl;
+
+        // Enable foreign key support
+        diesel::sql_query("PRAGMA foreign_keys = ON")
+            .execute(conn)
+            .await?;
+
+        // Enable WAL mode for better concurrency
+        diesel::sql_query("PRAGMA journal_mode = WAL")
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+}
+
+/// PostgreSQL-specific database connection implementation.
+#[cfg(feature = "postgres")]
+pub type PostgresConnection = DatabaseConnectionImpl<diesel_async::AsyncPgConnection>;
+
+#[cfg(feature = "postgres")]
+impl PostgresConnection {
+    /// Create a new PostgreSQL connection pool.
+    pub fn new(database_url: &str) -> Result<Self> {
+        use tokio::runtime::Runtime;
+
+        // Create a new runtime for running async code
+        let rt = Runtime::new().map_err(|e| Error::Runtime(e.to_string()))?;
+
+        // Create the connection manager
+        let manager = AsyncDieselConnectionManager::<diesel_async::AsyncPgConnection>::new(database_url);
+
+        // Create the connection pool
+        let pool = rt.block_on(async {
+            bb8::Pool::builder()
+                .max_size(10) // Adjust based on your needs
+                .build(manager)
+                .await
+        })?;
+
+        // Test the connection
+        rt.block_on(async {
+            let mut conn = pool.get_owned().await?;
+            Self::setup_connection(&mut *conn).await?;
+            Ok::<_, Error>(())
+        })?;
+
+        Ok(Self { pool: Arc::new(pool) })
+    }
+}
+
+/// A wrapper around a database connection pool that provides a type-safe API.
+pub struct DbConnection {
+    inner: Arc<dyn DatabaseConnection + Send + Sync>,
+}
+
+impl std::fmt::Debug for DbConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbConnection").finish()
+    }
+}
+
+impl Clone for DbConnection {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl DbConnection {
+    /// Create a new SQLite connection.
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite(database_url: &str) -> Result<Self> {
+        let conn = SqliteConnection::new(database_url)?;
         Ok(Self {
-            inner: Arc::new(pool),
+            inner: Arc::new(conn),
+        })
+    }
+
+    /// Create a new PostgreSQL connection.
+    #[cfg(feature = "postgres")]
+    pub fn postgres(database_url: &str) -> Result<Self> {
+        let conn = PostgresConnection::new(database_url)?;
+        Ok(Self {
+            inner: Arc::new(conn),
         })
     }
 
     /// Get a connection from the pool.
-    pub async fn get_connection(
-        &self,
-    ) -> Result<bb8::PooledConnection<'_, C::Manager>> {
-        self.inner
-            .get()
-            .await
-            .map_err(|e| Error::other(format!("Failed to get connection from pool: {}", e)))
-    }
-
-    /// Get a reference to the inner pool.
-    pub fn inner(&self) -> &Pool<C::Manager> {
-        &self.inner
+    pub async fn get_connection(&self) -> Result<Box<dyn AsyncConnection + Send + 'static>> {
+        self.inner.get_connection().await
     }
 }
 

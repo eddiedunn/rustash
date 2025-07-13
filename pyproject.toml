@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "dynamo-prp-share"
 version = "0.1.0"
@@ -5,3 +9,18 @@ description = "Library of assets and prompts for Ai Engineering"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
+
+[project.scripts]
+prp-runner = "dynamo_prp_share.prp_runner:main"
+
+[tool.hatch.build]
+packages = ["src/dynamo_prp_share"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "isort",
+    "mypy",
+]

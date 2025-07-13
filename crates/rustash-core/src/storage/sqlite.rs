@@ -1,41 +1,80 @@
 //! SQLite backend implementation for Rustash storage.
 
 use super::StorageBackend;
-use crate::database::connection_pool::DatabaseConnection;
-use crate::error::Error;
 use crate::{
-    database::SqlitePool,
-    error::Result,
+    database::{DbConnection, DbPool},
+    error::{Error, Result},
     models::{NewDbSnippet, Query, Snippet, SnippetWithTags},
+    schema::snippets,
 };
 use async_trait::async_trait;
-use diesel::prelude::*;
-use diesel::sql_query;
-use diesel_async::{AsyncSqliteConnection, RunQueryDsl};
-use uuid::Uuid;
-
+use chrono::NaiveDateTime;
+use diesel::{
+    prelude::*,
+    query_builder::AsQuery,
+    query_dsl::methods::LoadQuery,
+    sql_query,
+    sql_types::{Binary, Integer},
+    row::NamedRow,
+};
+use diesel_async::{
+    pooled_connection::bb8::PooledConnection,
+    AsyncConnection,
+    RunQueryDsl,
+};
+use diesel_async::sqlite::{SqliteRow, SqliteValue, AsyncSqliteConnection};
+use std::str::FromStr;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// A SQLite-backed storage implementation.
 #[derive(Debug, Clone)]
 pub struct SqliteBackend {
-    pool: Arc<SqlitePool>,
+    pool: DbPool,
 }
 
 impl SqliteBackend {
     /// Create a new SQLite backend with the given connection pool.
-    pub fn new(pool: SqlitePool) -> Self {
-        Self {
-            pool: Arc::new(pool),
-        }
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
     }
 
     /// Get a connection from the pool.
     async fn get_conn(
         &self,
-    ) -> Result<bb8::PooledConnection<'_, <AsyncSqliteConnection as DatabaseConnection>::Manager>>
-    {
+    ) -> Result<PooledConnection<'_, diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
         self.pool.get_connection().await.map_err(Into::into)
+    }
+
+    /// Convert a database row to a Snippet
+    fn row_to_snippet(&self, row: &SqliteRow) -> Result<Snippet> {
+        let uuid: String = row.get("uuid").map(|v: &SqliteValue| v.as_str().unwrap_or_default().to_string())?;
+        let title: String = row.get("title").map(|v: &SqliteValue| v.as_str().unwrap_or_default().to_string())?;
+        let content: String = row.get("content").map(|v: &SqliteValue| v.as_str().unwrap_or_default().to_string())?;
+        let tags_json: String = row.get("tags").map(|v: &SqliteValue| v.as_str().unwrap_or_default().to_string())?;
+        let embedding: Option<Vec<u8>> = row.get("embedding").map(|v: &SqliteValue| v.as_bytes().map(|b| b.to_vec())).transpose()?;
+        let created_at: NaiveDateTime = row.get("created_at").and_then(|v: &SqliteValue| {
+            v.as_str().and_then(|s| NaiveDateTime::from_str(s).ok())
+        }).ok_or_else(|| Error::other("Invalid created_at timestamp"))?;
+        let updated_at: NaiveDateTime = row.get("updated_at").and_then(|v: &SqliteValue| {
+            v.as_str().and_then(|s| NaiveDateTime::from_str(s).ok())
+        }).ok_or_else(|| Error::other("Invalid updated_at timestamp"))?;
+
+        // Validate the UUID format
+        Uuid::parse_str(&uuid).map_err(Error::from)?;
+
+        // Parse tags from JSON
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+        Ok(Snippet {
+            uuid,
+            title,
+            content,
+            tags: tags_json,  // Use the raw JSON string as expected by the Snippet struct
+            embedding,
+            created_at,
+            updated_at,
+        })
     }
 }
 
@@ -141,36 +180,67 @@ impl StorageBackend for SqliteBackend {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
-        use crate::models::SnippetWithTags;
+        use diesel::sql_types::{Binary as SqlBinary, Integer as SqlInteger, Nullable, Text, Timestamp, Double};
+        use diesel_async::RunQueryDsl;
 
         // SQLite VSS requires a bincode-serialized, f32 little-endian vector.
         let embedding_bytes = bincode::serialize(embedding)?;
 
+        // Define a custom type that matches the structure of our query result
         #[derive(QueryableByName)]
-        struct VssResult {
-            #[diesel(embed)]
-            snippet: Snippet,
-            #[diesel(sql_type = "diesel::sql_types::Float")]
-            distance: f32,
+        struct SnippetWithDistance {
+            #[diesel(sql_type = Text)]
+            pub uuid: String,
+            #[diesel(sql_type = Text)]
+            pub title: String,
+            #[diesel(sql_type = Text)]
+            pub content: String,
+            #[diesel(sql_type = Text)]
+            pub tags: String,
+            #[diesel(sql_type = Nullable<diesel::sql_types::Binary>)]
+            pub embedding: Option<Vec<u8>>,
+            #[diesel(sql_type = Timestamp)]
+            pub created_at: NaiveDateTime,
+            #[diesel(sql_type = Timestamp)]
+            pub updated_at: NaiveDateTime,
+            #[diesel(sql_type = Double)]
+            pub distance: f64,
         }
 
-        let query = diesel::sql_query(
-            "SELECT s.*, vs.distance FROM snippets s JOIN vss_snippets vs ON s.rowid = vs.rowid
-             WHERE vss_search(vs.embedding, vss_search_params(?, ?))",
-        )
-        .bind::<diesel::sql_types::Blob, _>(&embedding_bytes)
-        .bind::<diesel::sql_types::Integer, _>(limit as i32);
-
         let mut conn = self.get_conn().await?;
-        let results: Vec<VssResult> = query.load(&mut *conn).await?;
+        
+        // Build and execute the raw SQL query with parameters
+        let query = format!(
+            "SELECT s.uuid, s.title, s.content, s.tags, s.embedding, s.created_at, s.updated_at, vs.distance 
+             FROM snippets s 
+             JOIN vss_snippets vs ON s.rowid = vs.rowid
+             WHERE vss_search(vs.embedding, vss_search_params(?, ?))"
+        );
+        
+        let results = sql_query(&query)
+            .bind::<SqlBinary, _>(&embedding_bytes)
+            .bind::<SqlInteger, _>(limit as i32)
+            .load::<SnippetWithDistance>(&mut *conn)
+            .await?;
 
+        // Convert the results to the expected format
         let items = results
             .into_iter()
             .map(|row| {
-                let with_tags: SnippetWithTags = row.snippet.into();
+                let snippet = Snippet {
+                    uuid: row.uuid,
+                    title: row.title,
+                    content: row.content,
+                    tags: row.tags,
+                    embedding: row.embedding,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                
+                let with_tags: SnippetWithTags = snippet.into();
                 (
                     Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
-                    row.distance,
+                    row.distance as f32,
                 )
             })
             .collect();

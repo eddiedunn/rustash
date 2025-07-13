@@ -11,6 +11,9 @@ use r2d2;
 #[cfg(feature = "postgres")]
 use tokio_postgres::error::Error as PgError;
 
+#[cfg(feature = "bb8")]
+use bb8::RunError as Bb8RunError;
+
 /// Result type alias for Rustash operations
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -47,6 +50,14 @@ pub enum Error {
     #[error("Runtime error: {0}")]
     Runtime(String),
     
+    /// Bincode serialization/deserialization errors
+    #[error("Bincode error: {0}")]
+    Bincode(#[from] bincode::Error),
+    
+    /// Connection pool errors
+    #[error("Connection pool error: {0}")]
+    Pool(String),
+    
     /// PostgreSQL errors
     #[error("PostgreSQL error: {0}")]
     #[cfg(feature = "postgres")]
@@ -67,6 +78,10 @@ pub enum Error {
     /// Permission/authorization errors
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
+
+    /// Bincode serialization/deserialization errors
+    #[error("Bincode error: {0}")]
+    Bincode(#[from] Box<bincode::ErrorKind>),
 
     /// Generic error for other cases
     #[error("Error: {0}")]
@@ -157,8 +172,48 @@ impl From<tokio_postgres::Error> for Error {
 impl From<bb8::RunError<tokio_postgres::Error>> for Error {
     fn from(err: bb8::RunError<tokio_postgres::Error>) -> Self {
         match err {
-            bb8::RunError::User(err) => Error::Postgres(err),
-            bb8::RunError::TimedOut => Error::Runtime("Database connection timed out".to_string()),
+            bb8::RunError::User(e) => Error::Postgres(e),
+            bb8::RunError::TimedOut => Error::Pool("Connection timed out".into()),
+        }
+    }
+}
+
+#[cfg(feature = "bb8")]
+impl<T: std::error::Error + 'static> From<bb8::RunError<T>> for Error {
+    fn from(err: bb8::RunError<T>) -> Self {
+        match err {
+            bb8::RunError::User(e) => Error::Pool(format!("Connection error: {}", e)),
+            bb8::RunError::TimedOut => Error::Pool("Connection timed out".into()),
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl From<r2d2::Error> for Error {
+    fn from(err: r2d2::Error) -> Self {
+        Error::Pool(format!("Connection pool error: {}", err))
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Error::Bincode(err)
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Database(e) => Some(e),
+            Error::Connection(e) => Some(e),
+            #[cfg(feature = "sqlite")]
+            Error::ConnectionPool(e) => Some(e),
+            Error::Serialization(e) => Some(e),
+            Error::Io(e) => Some(e),
+            #[cfg(feature = "postgres")]
+            Error::Postgres(e) => Some(e),
+            Error::Bincode(e) => Some(e),
+            _ => None,
         }
     }
 }
