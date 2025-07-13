@@ -7,29 +7,16 @@
 
 pub mod connection_pool;
 
-// Re-export commonly used types
-use async_trait::async_trait;
-use diesel_async::{
-    pooled_connection::bb8::PooledConnection,
-    AsyncConnection,
-    RunQueryDsl,
-};
+// Re-export commonly used types - none currently needed
 
 #[cfg(feature = "postgres")]
-pub use diesel_async::{
-    pg::PgRow,
-    AsyncPgConnection,
-};
+pub use diesel_async::{pg::PgRow, AsyncPgConnection};
 
 #[cfg(feature = "sqlite")]
 pub use diesel_async::AsyncSqliteConnection;
 
 // Re-export connection pool types
-pub use connection_pool::{
-    DatabaseConnection, 
-    DbConnection,
-    AnyConnectionPool,
-};
+pub use connection_pool::{AnyConnectionPool, DatabaseConnection, DbConnection};
 
 #[cfg(feature = "sqlite")]
 pub use connection_pool::SqliteConnection;
@@ -92,14 +79,14 @@ pub async fn create_pool(database_url: &str) -> Result<DbPool, crate::error::Err
 /// Run database migrations for the given connection pool.
 pub async fn run_migrations(pool: &DbPool) -> Result<(), crate::error::Error> {
     use diesel_migrations::{embed_migrations, MigrationHarness};
-    
+
     let migrations = embed_migrations!("migrations");
-    
+
     let mut conn = pool.get_connection().await?;
     conn.run_pending_migrations(migrations)
         .await
         .map_err(|e| crate::error::Error::other(format!("Migration failed: {}", e)))?;
-        
+
     Ok(())
 }
 
@@ -110,9 +97,8 @@ pub async fn create_test_pool() -> Result<DbPool, crate::error::Error> {
 
     #[cfg(feature = "postgres")]
     let pool = DbConnection::postgres(
-        &std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://postgres:postgres@localhost/rustash_test".to_string()
-        }),
+        &std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/rustash_test".to_string()),
     )
     .await?;
 
