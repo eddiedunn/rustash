@@ -351,11 +351,10 @@ impl StorageBackend for PostgresBackend {
                     Box::new(id_str) as Box<dyn diesel::query_builder::QueryFragment<Pg> + Send>
                 ]
             )
-            (sql, param_refs)
         };
 
         // Execute the query
-        let rows = conn.query(&sql, &param_refs[..]).await?;
+        let rows = conn.query(&query, &params[..]).await?;
 
         // Process results
         let mut results = Vec::new();
