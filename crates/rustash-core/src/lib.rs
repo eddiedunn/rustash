@@ -26,10 +26,7 @@ pub use storage::postgres::PostgresBackend;
 #[cfg(feature = "sqlite")]
 pub use storage::sqlite::SqliteBackend;
 
-pub use snippet::{
-    add_snippet, delete_snippet, expand_placeholders, get_snippet_by_id, list_snippets,
-    list_snippets_with_tags, search_snippets, update_snippet,
-};
+pub use snippet::expand_placeholders;
 
 #[cfg(feature = "vector-search")]
 pub use search::search_similar_snippets;
@@ -53,7 +50,7 @@ pub async fn create_backend(database_url: &str) -> Result<Box<dyn StorageBackend
         return Err(crate::error::Error::other(
             "SQLite support not enabled. Recompile with the 'sqlite' feature.",
         ));
-        
+
         #[cfg(feature = "sqlite")]
         {
             let pool = crate::database::create_pool(database_url).await?;
