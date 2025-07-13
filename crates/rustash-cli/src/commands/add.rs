@@ -50,12 +50,19 @@ impl AddCommand {
             self.content.unwrap_or_default()
         };
 
-        anyhow::ensure!(!title.trim().is_empty(), "Title cannot be empty for CLI usage.");
-        anyhow::ensure!(!content.trim().is_empty(), "Content cannot be empty for CLI usage.");
+        anyhow::ensure!(
+            !title.trim().is_empty(),
+            "Title cannot be empty for CLI usage."
+        );
+        anyhow::ensure!(
+            !content.trim().is_empty(),
+            "Content cannot be empty for CLI usage."
+        );
 
-        let new_snippet = Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
+        let new_snippet =
+            Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
         backend.save(&new_snippet).await?;
-        println!("\u2713 Added snippet '{}' to stash.", new_snippet.title);
+        println!("\u{2713} Added snippet '{}' to stash.", new_snippet.title);
         Ok(())
     }
 
@@ -65,7 +72,7 @@ impl AddCommand {
         if let Some(data) = gui::show_add_window()? {
             let snippet = Snippet::with_uuid(Uuid::new_v4(), data.title, data.content, data.tags);
             backend.save(&snippet).await?;
-            println!("\u2713 Snippet added via GUI.");
+            println!("\u{2713} Snippet added via GUI.");
         } else {
             println!("Operation cancelled.");
         }

@@ -209,8 +209,6 @@ impl StorageBackend for SqliteBackend {
         // Relations not supported currently
         Ok(Vec::new())
     }
-
-    }
 }
 
 #[cfg(test)]
