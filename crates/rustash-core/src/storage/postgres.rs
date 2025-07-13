@@ -215,21 +215,11 @@ impl StorageBackend for PostgresBackend {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
-        use diesel::sql_types::{BigInt, Bytea, Float};
+        use crate::models::SnippetWithTags;
+        use diesel::sql_types::{BigInt, Float};
         use pgvector::Vector;
 
         let query_vector = Vector::from(embedding.to_vec());
-
-        // This query calculates the L2 distance between the stored embedding
-        // and the query vector, ordering by that distance to find the nearest neighbors.
-        let query = diesel::sql_query(
-            "SELECT *, embedding <-> $1 AS distance FROM snippets
-             WHERE embedding IS NOT NULL
-             ORDER BY distance ASC
-             LIMIT $2",
-        )
-        .bind::<pgvector::sql_types::Vector, _>(&query_vector)
-        .bind::<BigInt, _>(limit as i64);
 
         #[derive(QueryableByName)]
         struct SnippetWithDistance {
@@ -238,6 +228,15 @@ impl StorageBackend for PostgresBackend {
             #[diesel(sql_type = "Float")]
             distance: f32,
         }
+
+        let query = diesel::sql_query(
+            "SELECT *, embedding <-> $1 AS distance FROM snippets
+             WHERE embedding IS NOT NULL
+             ORDER BY distance ASC
+             LIMIT $2",
+        )
+        .bind::<pgvector::sql_types::Vector, _>(&query_vector)
+        .bind::<BigInt, _>(limit as i64);
 
         let mut conn = self.get_conn().await?;
         let rows: Vec<SnippetWithDistance> = query.load(&mut conn).await?;
@@ -258,12 +257,26 @@ impl StorageBackend for PostgresBackend {
 
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
         let mut conn = self.get_conn().await?;
-        // AGE requires that we match nodes and then create relationships.
-        // We assume snippets are vertices labeled 'Snippet' with a 'uuid' property.
+
+        // Ensure the graph nodes exist first. This is idempotent.
+        let upsert_from_query = format!("MERGE (a:Snippet {{uuid: '{}'}})", from);
+        let upsert_to_query = format!("MERGE (b:Snippet {{uuid: '{}'}})", to);
+        diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (v agtype);")
+            .bind::<diesel::sql_types::Text, _>(&upsert_from_query)
+            .execute(&mut conn)
+            .await?;
+        diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (v agtype);")
+            .bind::<diesel::sql_types::Text, _>(&upsert_to_query)
+            .execute(&mut conn)
+            .await?;
+
+        // Now create the relationship
         let cypher_query = format!(
             "MATCH (a:Snippet {{uuid: '{}'}}), (b:Snippet {{uuid: '{}'}})
-             CREATE (a)-[:{}]->(b)",
-            from, to, relation_type
+             MERGE (a)-[:{}]->(b)",
+            from,
+            to,
+            relation_type.to_uppercase()
         );
         let query =
             diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (v agtype);")
@@ -280,34 +293,37 @@ impl StorageBackend for PostgresBackend {
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
         let mut conn = self.get_conn().await?;
 
-        // The relation part of the MATCH pattern is dynamic.
         let relation_pattern = match relation_type {
-            Some(rt) => format!("-[:{}]->", rt),
+            Some(rt) => format!("-[:{}]->", rt.to_uppercase()),
             None => "-->".to_string(),
         };
 
         let cypher_query = format!(
-            "MATCH (a:Snippet {{uuid: '{}'}}){} (b:Snippet) RETURN b.uuid",
+            "MATCH (a:Snippet {{uuid: '{}'}}){}(b:Snippet) RETURN b.uuid",
             id, relation_pattern
         );
+
+        #[derive(QueryableByName)]
+        struct RelatedUuid {
+            #[diesel(sql_type = "diesel::sql_types::Jsonb")]
+            uuid: serde_json::Value,
+        }
+
         let query =
             diesel::sql_query("SELECT * from age.cypher('rustash_graph', $1) as (uuid agtype);")
                 .bind::<diesel::sql_types::Text, _>(cypher_query);
 
-        #[derive(QueryableByName)]
-        struct RelatedUuid {
-            #[diesel(sql_type = "diesel::sql_types::Text")]
-            uuid: String,
-        }
+        let related_agtypes: Vec<RelatedUuid> = query.load(&mut conn).await?;
 
-        let related_uuids: Vec<RelatedUuid> = query.load(&mut conn).await?;
-        let uuids: Vec<String> = related_uuids.into_iter().map(|r| r.uuid).collect();
+        let uuids: Vec<String> = related_agtypes
+            .into_iter()
+            .filter_map(|r| r.uuid.as_str().map(String::from))
+            .collect();
 
         if uuids.is_empty() {
             return Ok(vec![]);
         }
 
-        // Now fetch the full snippet details for the related UUIDs
         let snippets = crate::schema::snippets::table
             .filter(crate::schema::snippets::uuid.eq_any(uuids))
             .load::<Snippet>(&mut conn)
