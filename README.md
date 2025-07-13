@@ -45,9 +45,7 @@ cargo install --path .
 
 ```bash
 # Add a new snippet
-rustash --stash main snippets add "Docker Run PostgreSQL" \
-  "docker run --name postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres" \
-  --tags docker,postgres
+rustash --stash main snippets add "Title" "Content"
 
 # List snippets
 rustash --stash main snippets list
