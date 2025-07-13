@@ -12,7 +12,7 @@ pub enum ServiceType {
     KnowledgeGraph,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
 pub struct StashConfig {
     pub service_type: ServiceType,
     pub database_url: String,

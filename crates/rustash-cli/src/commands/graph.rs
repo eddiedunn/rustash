@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
-use rustash_core::{storage::StorageBackend, Uuid};
+use rustash_core::{models::Snippet, storage::StorageBackend, Uuid};
 use std::sync::Arc;
 
 #[derive(Args)]
@@ -40,7 +40,9 @@ impl GraphCommand {
                 } else {
                     println!("Found {} related items for {}:", results.len(), id);
                     for item in results {
-                        println!("  - {} ({})", item.id(), item.item_type());
+                        if let Some(snippet) = item.as_any().downcast_ref::<Snippet>() {
+                            println!("  - {} ({})", snippet.uuid, snippet.title);
+                        }
                     }
                 }
             }
