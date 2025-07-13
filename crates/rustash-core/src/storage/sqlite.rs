@@ -343,6 +343,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_save_and_update() {
+        let backend = create_test_backend().await;
+
+        let snippet_id = Uuid::new_v4();
+        let snippet = SnippetWithTags::with_uuid(
+            snippet_id,
+            "Initial Title".to_string(),
+            "Initial Content".to_string(),
+            vec!["initial".to_string()],
+        );
+
+        backend.save(&snippet).await.unwrap();
+
+        let updated_snippet = SnippetWithTags {
+            title: "Updated Title".to_string(),
+            content: "Updated Content".to_string(),
+            ..snippet
+        };
+
+        backend.save(&updated_snippet).await.unwrap();
+
+        let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
+        let retrieved_snippet = retrieved
+            .as_any()
+            .downcast_ref::<SnippetWithTags>()
+            .unwrap();
+
+        assert_eq!(retrieved_snippet.title, "Updated Title");
+    }
+
+    #[tokio::test]
     async fn test_query() {
         let backend = create_test_backend().await;
 

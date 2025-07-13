@@ -406,6 +406,39 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires PostgreSQL with pgvector and AGE"]
+    async fn test_save_and_update() {
+        let backend = create_test_backend().await.unwrap();
+
+        let snippet_id = Uuid::new_v4();
+        let mut snippet = Snippet {
+            uuid: snippet_id.to_string(),
+            title: "Initial Title".to_string(),
+            content: "Initial content".to_string(),
+            tags: serde_json::to_string(&vec!["initial".to_string()]).unwrap(),
+            embedding: None,
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+        };
+
+        backend.save(&snippet).await.unwrap();
+
+        snippet.title = "Updated Title".to_string();
+        snippet.content = "Updated content".to_string();
+
+        backend.save(&snippet).await.unwrap();
+
+        let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
+        let retrieved_snippet = retrieved
+            .as_any()
+            .downcast_ref::<SnippetWithTags>()
+            .unwrap();
+
+        assert_eq!(retrieved_snippet.title, "Updated Title");
+        assert_eq!(retrieved_snippet.content, "Updated content");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL with pgvector and AGE"]
     async fn test_query() {
         let backend = create_test_backend().await.unwrap();
 

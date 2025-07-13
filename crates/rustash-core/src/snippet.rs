@@ -86,3 +86,43 @@ impl SnippetService {
         self.backend.save(snippet).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_placeholders() {
+        let mut variables = HashMap::new();
+        variables.insert("name".to_string(), "Alice".to_string());
+        variables.insert("place".to_string(), "Wonderland".to_string());
+
+        let content = "Hello {{name}}, welcome to {{place}}!";
+        let expanded = expand_placeholders(content, &variables);
+        assert_eq!(expanded, "Hello Alice, welcome to Wonderland!");
+
+        let content_no_placeholders = "Hello world!";
+        let expanded_no_change = expand_placeholders(content_no_placeholders, &variables);
+        assert_eq!(expanded_no_change, "Hello world!");
+
+        let content_missing_var = "Hello {{name}}, how is {{location}}?";
+        let expanded_missing = expand_placeholders(content_missing_var, &variables);
+        assert_eq!(expanded_missing, "Hello Alice, how is {{location}}?");
+    }
+
+    #[test]
+    fn test_validate_snippet_content() {
+        assert!(validate_snippet_content("Title", "Content").is_ok());
+
+        assert!(validate_snippet_content("", "Content").is_err());
+        assert!(validate_snippet_content(" \t\n", "Content").is_err());
+        assert!(validate_snippet_content("Title", "").is_err());
+        assert!(validate_snippet_content("Title", "  ").is_err());
+
+        let long_title = "a".repeat(256);
+        assert!(validate_snippet_content(&long_title, "Content").is_err());
+
+        let long_content = "a".repeat(100_001);
+        assert!(validate_snippet_content("Title", &long_content).is_err());
+    }
+}
