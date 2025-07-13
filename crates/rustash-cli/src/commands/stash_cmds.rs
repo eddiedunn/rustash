@@ -1,6 +1,6 @@
 // crates/rustash-cli/src/commands/stash_cmds.rs
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use clap::{Args, Subcommand};
 use rustash_core::{
     config::{load_config, save_config, Config},
@@ -59,10 +59,7 @@ pub async fn execute_stash_command(command: StashCommands, mut config: Config) -
                 );
                 return Ok(());
             }
-
-            // Determine max name length for alignment
             let max_len = config.stashes.keys().map(String::len).max().unwrap_or(0);
-
             for (name, conf) in &config.stashes {
                 let is_default = config.default_stash.as_deref() == Some(name);
                 let default_str = if is_default { "(default)" } else { "" };
@@ -78,10 +75,7 @@ pub async fn execute_stash_command(command: StashCommands, mut config: Config) -
         }
         StashCommands::Add(args) => {
             if config.stashes.contains_key(&args.name) {
-                bail!(
-                    "A stash named '{}' already exists. Use a different name.",
-                    args.name
-                );
+                bail!("A stash named '{}' already exists.", args.name);
             }
             let new_config = StashConfig {
                 service_type: args.service_type,
@@ -90,7 +84,6 @@ pub async fn execute_stash_command(command: StashCommands, mut config: Config) -
             config.stashes.insert(args.name.clone(), new_config);
             println!("✓ Stash '{}' added.", args.name);
 
-            // If it's the first stash, make it the default
             if config.default_stash.is_none() {
                 config.default_stash = Some(args.name.clone());
                 println!("✓ Stash '{}' set as the default.", args.name);
@@ -103,7 +96,6 @@ pub async fn execute_stash_command(command: StashCommands, mut config: Config) -
             }
             println!("✓ Stash '{}' removed.", args.name);
 
-            // If the removed stash was the default, clear the default
             if config.default_stash.as_deref() == Some(&args.name) {
                 config.default_stash = None;
                 println!("! Default stash has been cleared.");

@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use rustash_core::{models::Snippet, storage::StorageBackend};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Args)]
 pub struct RagCommand {
@@ -41,7 +40,6 @@ impl RagCommand {
 
                 // --- Placeholder for Embedding Generation ---
                 // In a real application, you would call an embedding model here.
-                // For now, we'll create a dummy embedding.
                 println!("Generating dummy embedding for '{}'...", title);
                 let dummy_embedding: Vec<f32> = vec![0.1; 384]; // Must match dimension in migration
                                                                 // ------------------------------------------
@@ -70,8 +68,9 @@ impl RagCommand {
                 } else {
                     println!("Found {} similar documents:", results.len());
                     for (item, distance) in results {
-                        let snippet = item.as_any().downcast_ref::<Snippet>().unwrap();
-                        println!("  - Title: {}, (Distance: {:.4})", snippet.title, distance);
+                        if let Some(snippet) = item.as_any().downcast_ref::<Snippet>() {
+                            println!("  - Title: {}, (Distance: {:.4})", snippet.title, distance);
+                        }
                     }
                 }
             }

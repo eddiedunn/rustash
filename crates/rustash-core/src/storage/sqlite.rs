@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel_async::{AsyncSqliteConnection, RunQueryDsl};
+use uuid::Uuid;
 
 use std::sync::Arc;
 
@@ -140,37 +141,41 @@ impl StorageBackend for SqliteBackend {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
+        use crate::models::SnippetWithTags;
+
         // SQLite VSS requires a bincode-serialized, f32 little-endian vector.
         let embedding_bytes = bincode::serialize(embedding)?;
 
-        // The query finds the rowids of the N nearest neighbors from the VSS table,
-        // then joins back to the snippets table to get the full snippet data.
+        #[derive(QueryableByName)]
+        struct VssResult {
+            #[diesel(embed)]
+            snippet: Snippet,
+            #[diesel(sql_type = "diesel::sql_types::Float")]
+            distance: f32,
+        }
+
         let query = diesel::sql_query(
-            "SELECT s.* FROM snippets s JOIN vss_snippets vs ON s.rowid = vs.rowid
-             WHERE vs.vss_search(?, ?)
-             ORDER BY vs.distance",
+            "SELECT s.*, vs.distance FROM snippets s JOIN vss_snippets vs ON s.rowid = vs.rowid
+             WHERE vss_search(vs.embedding, vss_search_params(?, ?))",
         )
         .bind::<diesel::sql_types::Blob, _>(&embedding_bytes)
         .bind::<diesel::sql_types::Integer, _>(limit as i32);
 
         let mut conn = self.get_conn().await?;
-        let snippets: Vec<Snippet> = query.load(&mut *conn).await?;
+        let results: Vec<VssResult> = query.load(&mut *conn).await?;
 
-        // Note: The distance is not easily retrievable in the same query.
-        // For this implementation, we return a dummy distance of 0.0.
-        // A more complex query could retrieve it if needed.
-        let results = snippets
+        let items = results
             .into_iter()
-            .map(|s| {
-                let with_tags: SnippetWithTags = s.into();
+            .map(|row| {
+                let with_tags: SnippetWithTags = row.snippet.into();
                 (
                     Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
-                    0.0,
+                    row.distance,
                 )
             })
             .collect();
 
-        Ok(results)
+        Ok(items)
     }
 
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
@@ -245,17 +250,18 @@ impl StorageBackend for SqliteBackend {
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
         let mut conn = self.get_conn().await?;
-        let mut query = diesel::sql_query(
-            "SELECT s.* FROM snippets s JOIN relations r ON s.uuid = r.to_uuid WHERE r.from_uuid = ?"
+        let mut query_builder = diesel::sql_query(
+            "SELECT s.* FROM snippets s JOIN relations r ON s.uuid = r.to_uuid WHERE r.from_uuid = ?",
         )
         .bind::<diesel::sql_types::Text, _>(id.to_string());
+
         if let Some(rel_type) = relation_type {
-            query = query
+            query_builder = query_builder
                 .sql(" AND r.relation_type = ?")
                 .bind::<diesel::sql_types::Text, _>(rel_type);
         }
 
-        let snippets: Vec<Snippet> = query.load(&mut *conn).await?;
+        let snippets: Vec<Snippet> = query_builder.load(&mut conn).await?;
         let results = snippets
             .into_iter()
             .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
