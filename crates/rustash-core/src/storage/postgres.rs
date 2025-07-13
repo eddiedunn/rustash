@@ -2,8 +2,8 @@
 
 use super::StorageBackend;
 use crate::{
-    database::{DbConnection, DbPool},
-    error::Result,
+    database::postgres_pool::PgPool,
+    error::{Error, Result},
     models::{Query, Snippet, SnippetWithTags},
 };
 use chrono::{DateTime, Utc};
@@ -25,82 +25,64 @@ use uuid::Uuid;
 /// A PostgreSQL-backed storage implementation.
 #[derive(Debug, Clone)]
 pub struct PostgresBackend {
-    pool: DbPool,
+    pool: std::sync::Arc<PgPool>,
 }
 
 impl PostgresBackend {
     /// Create a new PostgreSQL backend with the given connection pool.
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool: std::sync::Arc::new(pool) }
     }
 
     /// Get a connection from the pool.
-    async fn get_conn(
-        &self,
-    ) -> Result<diesel_async::AsyncPgConnection> {
-        let conn = self.pool.get().await?;
-        Ok(conn.into_inner())
-    }
+    async fn get_conn(&self) -> Result<diesel_async::pooled_connection::bb8::PooledConnection<'_, diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::AsyncPgConnection>>> {
+    self.pool.get().await.map_err(|e| Error::Pool(e.to_string()))
+}
 
-    /// Convert a database row to a Snippet
-    fn row_to_snippet(&self, row: &PgRow) -> Result<Snippet> {
-        let uuid: String = row.get("uuid").map(|v: &PgValue| v.as_str().unwrap_or_default().to_string())?;
-        let title: String = row.get("title").map(|v: &PgValue| v.as_str().unwrap_or_default().to_string())?;
-        let content: String = row.get("content").map(|v: &PgValue| v.as_str().unwrap_or_default().to_string())?;
-        let tags_json: String = row.get("tags").map(|v: &PgValue| v.as_str().unwrap_or_default().to_string())?;
-        
-        let embedding: Option<Vec<u8>> = row.get("embedding")
-            .map(|v: &PgValue| v.as_bytes().map(|b| b.to_vec()))
-            .transpose()?;
-            
-        let created_at: NaiveDateTime = row.get("created_at")
-            .and_then(|v: &PgValue| v.as_str())
-            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f").ok())
-            .ok_or_else(|| Error::other("Invalid created_at timestamp"))?;
-            
-        let updated_at: NaiveDateTime = row.get("updated_at")
-            .and_then(|v: &PgValue| v.as_str())
-            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f").ok())
-            .ok_or_else(|| Error::other("Invalid updated_at timestamp"))?;
 
-        // Validate the UUID format
-        Uuid::parse_str(&uuid).map_err(Error::from)?;
-
-        // Validate the tags JSON
-        let _: Vec<String> = serde_json::from_str(&tags_json).map_err(Error::from)?;
-
-        let snippet = Snippet {
-            uuid,
-            title,
-            content,
-            tags: tags_json,
-            embedding,
-            created_at,
-            updated_at,
-        };
-
-        Ok(snippet)
-    }
 }
 
 #[async_trait]
 impl StorageBackend for PostgresBackend {
     async fn save(&self, item: &(dyn crate::memory::MemoryItem + Send + Sync)) -> Result<()> {
-        use diesel::prelude::*;
-
         let snippet = item
             .as_any()
-            .downcast_ref::<Snippet>()
-            .ok_or_else(|| Error::other("Expected a Snippet"))?;
+            .downcast_ref::<SnippetWithTags>()
+            .ok_or_else(|| Error::other("Expected a SnippetWithTags"))?;
 
         // Validate the UUID format
         Uuid::parse_str(&snippet.uuid)
             .map_err(|e| Error::other(format!("Invalid UUID format: {}", e)))?;
 
-        // Validate tags JSON
-        let _: Vec<String> = serde_json::from_str(&snippet.tags)
-            .map_err(|e| Error::other(format!("Invalid tags format: {}", e)))?;
-
+        let now = chrono::Utc::now();
+        let embedding_bytes = snippet.embedding.as_ref().map(|b| b.to_vec());
+        let mut conn = self.get_conn().await?;
+        let query = r#"
+            INSERT INTO snippets (uuid, title, content, tags, embedding, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (uuid) DO UPDATE
+            SET title = EXCLUDED.title,
+                content = EXCLUDED.content,
+                tags = EXCLUDED.tags,
+                embedding = EXCLUDED.embedding,
+                updated_at = EXCLUDED.updated_at
+        "#;
+        use diesel::sql_types::{Text, Timestamptz};
+        use diesel::sql_types::Jsonb;
+        use diesel::sql_types::Nullable;
+        diesel::sql_query(query)
+            .bind::<Text, _>(&snippet.uuid)
+            .bind::<Text, _>(&snippet.title)
+            .bind::<Text, _>(&snippet.content)
+            .bind::<Jsonb, _>(serde_json::to_value(&snippet.tags)? )
+            .bind::<Nullable<diesel::sql_types::Binary>, _>(embedding_bytes)
+            .bind::<Timestamptz, _>(now)
+            .bind::<Timestamptz, _>(now)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| Error::other(format!("Failed to save snippet: {}", e)))?;
+        Ok(())
+    }
         let now = chrono::Utc::now().naive_utc();
 
         let mut conn = self.get_conn().await?;
@@ -138,25 +120,20 @@ impl StorageBackend for PostgresBackend {
         &self,
         id: &Uuid,
     ) -> Result<Option<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use diesel::prelude::*;
-
+        use crate::schema::snippets::dsl::*;
         let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
-
-        let query = "SELECT * FROM snippets WHERE uuid = $1";
-
-        let result = sql_query(query)
-            .bind::<Text, _>(&id_str)
-            .get_result::<diesel::pg::PgRow>(&mut conn)
-            .await;
-
+        let result: Option<DbSnippet> = snippets
+            .filter(uuid.eq(&id_str))
+            .first::<DbSnippet>(&mut *conn)
+            .await
+            .optional()?;
         match result {
-            Ok(row) => {
-                let snippet = self.row_to_snippet(row)?;
-                Ok(Some(Box::new(snippet)))
+            Some(db_snippet) => {
+                let snippet_with_tags: SnippetWithTags = db_snippet.into();
+                Ok(Some(Box::new(snippet_with_tags)))
             }
-            Err(diesel::result::Error::NotFound) => Ok(None),
-            Err(e) => Err(Error::other(format!("Failed to get snippet: {}", e))),
+            None => Ok(None),
         }
     }
 
@@ -181,49 +158,35 @@ impl StorageBackend for PostgresBackend {
         &self,
         query: &crate::models::Query,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
+        use crate::schema::snippets;
         use diesel::prelude::*;
 
         let mut conn = self.get_conn().await?;
-        let mut results = Vec::new();
+        let mut query_builder = snippets::table.into_boxed();
 
-        // Start building the query
-        let mut sql = "SELECT * FROM snippets WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn diesel::query_builder::QueryFragment<Pg> + Send>> = Vec::new();
-
-        // Add tag filter if specified
-        if let Some(tags) = &query.tags {
-            if !tags.is_empty() {
-                sql.push_str(" AND tags @> $1");
-                params.push(Box::new(tags.clone()) as _);
-            }
-        }
-
-        // Add text filter if specified
         if let Some(text_filter) = &query.text_filter {
             let search_term = format!("%{}%", text_filter);
-            sql.push_str(" AND (title ILIKE $2 OR content ILIKE $2)");
-            params.push(Box::new(search_term) as _);
+            query_builder = query_builder.filter(
+                snippets::title
+                    .ilike(&search_term)
+                    .or(snippets::content.ilike(&search_term)),
+            );
         }
-
-        // Add ordering
-        sql.push_str(" ORDER BY created_at DESC");
-
-        // Add limit if specified
+        if let Some(tags) = &query.tags {
+            if !tags.is_empty() {
+                use diesel::dsl::sql;
+                let tags_json = serde_json::to_value(tags)?;
+                query_builder = query_builder.filter(sql::<diesel::sql_types::Bool>(&format!("tags @> '{}'", tags_json)));
+            }
+        }
         if let Some(limit) = query.limit {
-            sql.push_str(&format!(" LIMIT {}", limit));
+            query_builder = query_builder.limit(limit as i64);
         }
-
-        // Execute the query
-        let rows = sql_query(&sql)
-            .load::<diesel::pg::PgRow>(&mut conn)
-            .await
-            .map_err(|e| Error::other(format!("Failed to query snippets: {}", e)))?;
-
-        for row in rows {
-            let snippet = self.row_to_snippet(row)?;
-            results.push(Box::new(snippet) as Box<dyn crate::memory::MemoryItem + Send + Sync>);
-        }
-
+        let db_snippets = query_builder.load::<DbSnippet>(&mut *conn).await?;
+        let results: Vec<Box<dyn MemoryItem + Send + Sync>> = db_snippets
+            .into_iter()
+            .map(|s| Box::new(SnippetWithTags::from(s)) as Box<dyn MemoryItem + Send + Sync>)
+            .collect();
         Ok(results)
     }
 
@@ -232,20 +195,15 @@ impl StorageBackend for PostgresBackend {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
-        use crate::models::SnippetWithTags;
         use diesel::sql_types::{BigInt, Float};
-        use pgvector::Vector;
-
         let query_vector = Vector::from(embedding.to_vec());
-
         #[derive(QueryableByName)]
         struct SnippetWithDistance {
             #[diesel(embed)]
-            snippet: Snippet,
+            snippet: DbSnippet,
             #[diesel(sql_type = "Float")]
             distance: f32,
         }
-
         let query = diesel::sql_query(
             "SELECT *, embedding <-> $1 AS distance FROM snippets
              WHERE embedding IS NOT NULL
@@ -254,10 +212,8 @@ impl StorageBackend for PostgresBackend {
         )
         .bind::<pgvector::sql_types::Vector, _>(&query_vector)
         .bind::<BigInt, _>(limit as i64);
-
         let mut conn = self.get_conn().await?;
-        let rows: Vec<SnippetWithDistance> = query.load(&mut conn).await?;
-
+        let rows: Vec<SnippetWithDistance> = query.get_results(&mut *conn).await?;
         let results = rows
             .into_iter()
             .map(|row| {
@@ -268,7 +224,6 @@ impl StorageBackend for PostgresBackend {
                 )
             })
             .collect();
-
         Ok(results)
     }
 
@@ -343,7 +298,6 @@ impl StorageBackend for PostgresBackend {
         Ok(results)
         */
     }
-}
 
 #[cfg(test)]
 mod tests {

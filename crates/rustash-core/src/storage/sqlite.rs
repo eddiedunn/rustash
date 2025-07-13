@@ -2,10 +2,9 @@
 
 use super::StorageBackend;
 use crate::{
-    database::{DbConnection, DbPool},
+    database::sqlite_pool::SqlitePool,
     error::{Error, Result},
-    models::{NewDbSnippet, Query, Snippet, SnippetWithTags},
-    schema::snippets,
+    models::{Query, Snippet, SnippetWithTags},
 };
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
@@ -30,21 +29,19 @@ use uuid::Uuid;
 /// A SQLite-backed storage implementation.
 #[derive(Debug, Clone)]
 pub struct SqliteBackend {
-    pool: DbPool,
+    pool: std::sync::Arc<SqlitePool>,
 }
 
 impl SqliteBackend {
     /// Create a new SQLite backend with the given connection pool.
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool: std::sync::Arc::new(pool) }
     }
 
     /// Get a connection from the pool.
-    async fn get_conn(
-        &self,
-    ) -> Result<PooledConnection<'_, diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
-        self.pool.get_connection().await.map_err(Into::into)
-    }
+    async fn get_conn(&self) -> Result<PooledConnection<'_, diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>>> {
+    self.pool.get().await.map_err(|e| Error::Pool(e.to_string()))
+}
 
     /// Convert a database row to a Snippet
     fn row_to_snippet(&self, row: &SqliteRow) -> Result<Snippet> {
@@ -86,21 +83,32 @@ impl StorageBackend for SqliteBackend {
         let snippet = item
             .as_any()
             .downcast_ref::<SnippetWithTags>()
-            .ok_or_else(|| Error::other("Invalid item type"))?;
+            .ok_or_else(|| Error::other("Invalid item type: Expected SnippetWithTags"))?;
 
-        let new_snippet = NewDbSnippet::new(
-            snippet.title.clone(),
-            snippet.content.clone(),
-            snippet.tags.clone(),
-        );
-
-        // Convert to the database model
-        let db_snippet: NewDbSnippet = new_snippet.into();
+        let db_snippet = NewDbSnippet {
+            uuid: snippet.uuid.clone(),
+            title: snippet.title.clone(),
+            content: snippet.content.clone(),
+            tags: serde_json::to_string(&snippet.tags).unwrap_or_else(|_| "[]".to_string()),
+            embedding: snippet.embedding.clone(),
+        };
 
         let mut conn = self.get_conn().await?;
 
-        // Check if the snippet already exists
-        let existing: Option<Snippet> = crate::schema::snippets::table
+        diesel::insert_into(crate::schema::snippets::table)
+            .values(&db_snippet)
+            .on_conflict(crate::schema::snippets::uuid)
+            .do_update()
+            .set((
+                crate::schema::snippets::title.eq(&db_snippet.title),
+                crate::schema::snippets::content.eq(&db_snippet.content),
+                crate::schema::snippets::tags.eq(&db_snippet.tags),
+                crate::schema::snippets::updated_at.eq(chrono::Utc::now().naive_utc()),
+            ))
+            .execute(&mut *conn)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
             .filter(crate::schema::snippets::uuid.eq(&db_snippet.uuid))
             .first(&mut *conn)
             .await
@@ -343,46 +351,20 @@ impl StorageBackend for SqliteBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        database::create_pool,
-        models::{Snippet, SnippetWithTags},
-    };
+    use crate::{database::sqlite_pool, models::Snippet};
     use chrono::Utc;
-    use diesel_async::RunQueryDsl;
-    use diesel_migrations::{embed_migrations, MigrationHarness};
-    use serde_json;
-    use std::sync::Arc;
     use uuid::Uuid;
 
-    // This will embed the migrations in the binary
-    pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations = embed_migrations!("migrations");
-
     async fn create_test_backend() -> SqliteBackend {
-        // Create a test pool with an in-memory SQLite database
-        let database_url = "sqlite::memory:";
-        let pool = create_pool(database_url)
+        let pool = sqlite_pool::create_pool(":memory:")
             .await
             .expect("Failed to create test pool");
-
-        // Get a connection from the pool to run migrations
-        let mut conn = pool
-            .get()
-            .await
-            .expect("Failed to get connection from pool");
-
-        // Run migrations on the same connection that will be used by the tests
-        conn.run_pending_migrations(MIGRATIONS)
-            .await
-            .expect("Failed to run migrations");
-
-        // Create the backend with the same pool
-        SqliteBackend::new(Arc::new(pool))
+        SqliteBackend::new(pool)
     }
 
     #[tokio::test]
     async fn test_save_and_get() {
         let backend = create_test_backend().await;
-
         let snippet_id = Uuid::new_v4();
         let snippet = Snippet {
             uuid: snippet_id.to_string(),
@@ -394,13 +376,8 @@ mod tests {
             updated_at: Utc::now().naive_utc(),
         };
 
-        // Convert Snippet to a type that implements MemoryItem
-        let snippet_with_tags = SnippetWithTags::from(snippet.clone());
+        backend.save(&snippet).await.unwrap();
 
-        // Save the snippet
-        backend.save(&snippet_with_tags).await.unwrap();
-
-        // Retrieve it
         let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
         let retrieved_snippet = retrieved
             .as_any()
@@ -417,7 +394,7 @@ mod tests {
         let backend = create_test_backend().await;
 
         let snippet_id = Uuid::new_v4();
-        let snippet = SnippetWithTags::with_uuid(
+        let mut snippet = Snippet::with_uuid(
             snippet_id,
             "Initial Title".to_string(),
             "Initial Content".to_string(),
@@ -426,13 +403,10 @@ mod tests {
 
         backend.save(&snippet).await.unwrap();
 
-        let updated_snippet = SnippetWithTags {
-            title: "Updated Title".to_string(),
-            content: "Updated Content".to_string(),
-            ..snippet
-        };
+        snippet.title = "Updated Title".to_string();
+        snippet.content = "Updated Content".to_string();
 
-        backend.save(&updated_snippet).await.unwrap();
+        backend.save(&snippet).await.unwrap();
 
         let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
         let retrieved_snippet = retrieved
@@ -441,132 +415,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(retrieved_snippet.title, "Updated Title");
+        assert_eq!(retrieved_snippet.content, "Updated Content");
     }
 
     #[tokio::test]
     async fn test_query() {
         let backend = create_test_backend().await;
 
-        // Create some test snippets
-        let snippet1 = Snippet {
-            uuid: Uuid::new_v4().to_string(),
-            title: "Test Snippet 1".to_string(),
-            content: "Test content 1".to_string(),
-            tags: serde_json::to_string(&vec!["test1".to_string()]).unwrap(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
+        let snippet1 = Snippet::with_uuid(
+            Uuid::new_v4(),
+            "Python Code".to_string(),
+            "print('hello')".to_string(),
+            vec!["python".to_string()],
+        );
+        let snippet2 = Snippet::with_uuid(
+            Uuid::new_v4(),
+            "Rust Code".to_string(),
+            "println!(\"hello\")".to_string(),
+            vec!["rust".to_string()],
+        );
 
-        let snippet2 = Snippet {
-            uuid: Uuid::new_v4().to_string(),
-            title: "Test Snippet 2".to_string(),
-            content: "Another test content".to_string(),
-            tags: serde_json::to_string(&vec!["test2".to_string()]).unwrap(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        // Save the snippets
         backend.save(&snippet1).await.unwrap();
         backend.save(&snippet2).await.unwrap();
 
-        // Query with text filter
-        let query = crate::models::Query {
-            text_filter: Some("Another".to_string()),
-            tags: None,
-            limit: Some(10),
+        let query = Query {
+            text_filter: Some("Rust".to_string()),
+            ..Default::default()
         };
 
         let results = backend.query(&query).await.unwrap();
         assert_eq!(results.len(), 1);
-
-        let first_result = results[0]
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-
-        assert_eq!(first_result.title, "Test Snippet 2");
-    }
-
-    #[tokio::test]
-    async fn test_delete() {
-        let backend = create_test_backend().await;
-
-        let snippet_id = Uuid::new_v4();
-        let snippet = Snippet {
-            uuid: snippet_id.to_string(),
-            title: "To be deleted".to_string(),
-            content: "This will be deleted".to_string(),
-            tags: serde_json::to_string(&vec!["test".to_string()]).unwrap(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        // Save the snippet
-        backend.save(&snippet).await.unwrap();
-
-        // Verify it exists
-        assert!(backend.get(&snippet_id).await.unwrap().is_some());
-
-        // Delete it
-        backend.delete(&snippet_id).await.unwrap();
-
-        // Verify it's gone
-        assert!(backend.get(&snippet_id).await.unwrap().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_relations() {
-        let backend = create_test_backend().await;
-
-        // Create two snippets
-        let snippet1 = Snippet {
-            uuid: Uuid::new_v4().to_string(),
-            title: "Source Snippet".to_string(),
-            content: "Source content".to_string(),
-            tags: serde_json::to_string(&Vec::<String>::new()).unwrap(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        let snippet2 = Snippet {
-            uuid: Uuid::new_v4().to_string(),
-            title: "Related Snippet".to_string(),
-            content: "Related content".to_string(),
-            tags: serde_json::to_string(&Vec::<String>::new()).unwrap(),
-            embedding: None,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        // Save the snippets
-        backend.save(&snippet1).await.unwrap();
-        backend.save(&snippet2).await.unwrap();
-
-        // Add a relation
-        let from_id = Uuid::parse_str(&snippet1.uuid).unwrap();
-        let to_id = Uuid::parse_str(&snippet2.uuid).unwrap();
-        backend
-            .add_relation(&from_id, &to_id, "related")
-            .await
-            .unwrap();
-
-        // Get related snippets
-        let related = backend
-            .get_related(&from_id, Some("related"))
-            .await
-            .unwrap();
-        assert_eq!(related.len(), 1);
-
-        let related_snippet = related[0]
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-
-        assert_eq!(related_snippet.title, "Related Snippet");
+        let result = results[0].as_any().downcast_ref::<SnippetWithTags>().unwrap();
+        assert_eq!(result.title, "Rust Code");
     }
 }

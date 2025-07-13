@@ -61,7 +61,7 @@ pub enum Error {
     /// PostgreSQL errors
     #[error("PostgreSQL error: {0}")]
     #[cfg(feature = "postgres")]
-    Postgres(#[source] PgError),
+    Postgres(#[from] PgError),
 
     /// UUID parsing errors
     #[error("Invalid UUID: {0}")]
@@ -156,59 +156,12 @@ impl Error {
     }
 }
 
-#[cfg(feature = "postgres")]
-impl From<tokio_postgres::Error> for Error {
-    fn from(err: tokio_postgres::Error) -> Self {
-        Error::Postgres(err)
-    }
-}
-
-#[cfg(feature = "postgres")]
-impl From<bb8::RunError<tokio_postgres::Error>> for Error {
-    fn from(err: bb8::RunError<tokio_postgres::Error>) -> Self {
-        match err {
-            bb8::RunError::User(e) => Error::Postgres(e),
-            bb8::RunError::TimedOut => Error::Pool("Connection timed out".into()),
-        }
-    }
-}
-
 #[cfg(feature = "bb8")]
 impl<T: std::error::Error + 'static> From<bb8::RunError<T>> for Error {
     fn from(err: bb8::RunError<T>) -> Self {
         match err {
             bb8::RunError::User(e) => Error::Pool(format!("Connection error: {}", e)),
             bb8::RunError::TimedOut => Error::Pool("Connection timed out".into()),
-        }
-    }
-}
-
-#[cfg(feature = "sqlite")]
-impl From<r2d2::Error> for Error {
-    fn from(err: r2d2::Error) -> Self {
-        Error::Pool(format!("Connection pool error: {}", err))
-    }
-}
-
-impl From<bincode::Error> for Error {
-    fn from(err: bincode::Error) -> Self {
-        Error::Bincode(err)
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Database(e) => Some(e),
-            Error::Connection(e) => Some(e),
-            #[cfg(feature = "sqlite")]
-            Error::ConnectionPool(e) => Some(e),
-            Error::Serialization(e) => Some(e),
-            Error::Io(e) => Some(e),
-            #[cfg(feature = "postgres")]
-            Error::Postgres(e) => Some(e),
-            Error::Bincode(e) => Some(e),
-            _ => None,
         }
     }
 }
