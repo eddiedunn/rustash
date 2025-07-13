@@ -41,7 +41,7 @@ pub async fn create_backend(database_url: &str) -> Result<Box<dyn StorageBackend
 
         #[cfg(feature = "postgres")]
         {
-            let pool = crate::database::create_pool(database_url).await?;
+            let pool = crate::database::create_connection_pool(database_url).await?;
             crate::database::run_migrations(&pool).await?;
             Ok(Box::new(PostgresBackend::new(pool)))
         }
@@ -53,7 +53,7 @@ pub async fn create_backend(database_url: &str) -> Result<Box<dyn StorageBackend
 
         #[cfg(feature = "sqlite")]
         {
-            let pool = crate::database::create_pool(database_url).await?;
+            let pool = crate::database::create_connection_pool(database_url).await?;
             crate::database::run_migrations(&pool).await?;
             Ok(Box::new(SqliteBackend::new(pool)))
         }

@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/rustash-core",
-    "crates/rustash-cli"
+    "crates/rustash-cli",
+    "xtask"
 ]
 resolver = "2"
 
