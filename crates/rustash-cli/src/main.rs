@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
                 stash.name,
                 stash.config.service_type
             );
-            commands::snippets::execute_snippet_command(cmd.command, stash.backend.clone()).await?;
+            cmd.execute(stash.backend.clone()).await?;
         }
         Commands::Stash(cmd) => {
             commands::stash_cmds::execute_stash_command(cmd.command, config).await?;

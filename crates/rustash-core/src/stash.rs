@@ -3,6 +3,7 @@
 use crate::storage::StorageBackend;
 use crate::Result;
 use serde::Deserialize;
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceType {
@@ -21,13 +22,13 @@ pub struct StashConfig {
 pub struct Stash {
     pub name: String,
     pub config: StashConfig,
-    pub backend: Box<dyn StorageBackend>,
+    pub backend: Arc<Box<dyn StorageBackend>>,
 }
 
 impl Stash {
     /// Creates a new, initialized Stash by setting up its backend.
     pub async fn new(name: &str, config: StashConfig) -> Result<Self> {
-        let backend = crate::create_backend(&config.database_url).await?;
+        let backend = Arc::new(crate::create_backend(&config.database_url).await?);
         Ok(Self {
             name: name.to_string(),
             config,
