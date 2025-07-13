@@ -49,19 +49,19 @@ export DATABASE_URL=~/.local/share/rustash/snippets.db
 
 1. **Add a snippet**:
    ```bash
-   rustash add "Docker Run PostgreSQL" \
+   rustash --stash main snippets add "Docker Run PostgreSQL" \
      "docker run --name postgres -e POSTGRES_PASSWORD=secret -p 5432:5432 -d postgres" \
      --tags docker,postgres
    ```
 
 2. **List your snippets**:
    ```bash
-   rustash list
+   rustash --stash main snippets list
    ```
 
 3. **Use a snippet** (copies to clipboard):
    ```bash
-   rustash use 1
+   rustash --stash main snippets use 1
    ```
 
 ### Using Variables in Snippets
@@ -70,13 +70,31 @@ Create templates with placeholders:
 
 ```bash
 # Add a snippet with placeholders
-rustash add "SSH Command" "ssh {{user}}@{{host}} -p {{port:22}}" --tags ssh
+rustash --stash main snippets add "SSH Command" "ssh {{user}}@{{host}} -p {{port:22}}" --tags ssh
 
 # Use with variables
-rustash use 2 --var user=admin --var host=example.com
+rustash --stash main snippets use 2 --var user=admin --var host=example.com
 
 # Or use interactive mode
-rustash use 2 --interactive
+rustash --stash main snippets use 2 --interactive
+```
+
+### Stashes
+
+Stashes are defined in `~/.config/rustash/stashes.toml`:
+
+```toml
+default_stash = "main"
+
+[stashes.main]
+service_type = "Snippet"
+database_url = "sqlite://~/.config/rustash/rustash.db"
+```
+
+CLI syntax:
+
+```bash
+rustash --stash <name> <service> <command>
 ```
 
 ## 📚 Core Concepts
@@ -85,8 +103,15 @@ rustash use 2 --interactive
 - **Placeholders**: Dynamic variables (`{{name}}`) that can be filled in when using a snippet
 - **Tags**: Labels for organizing and filtering snippets
 - **Search**: Find snippets using full-text search or tag filtering
+- **Stashes**: Named collections with their own backend, configured in `~/.config/rustash/stashes.toml`
 
 ## ⌨️ Command Reference
+
+All commands follow:
+
+```bash
+rustash --stash <name> <service> <command> [options]
+```
 
 ### Add Snippets
 

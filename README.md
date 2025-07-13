@@ -14,6 +14,7 @@ Rustash helps you manage, search, and use code snippets efficiently across multi
   - SQLite for local development (default)
   - PostgreSQL with Apache AGE for graph capabilities
   - In-memory backend for testing
+  - Named *Stashes* choose which backend to use via `stashes.toml`
 
 - **Powerful Snippet Management**
   - Full-text search with advanced filtering
@@ -44,31 +45,49 @@ cargo install --path .
 
 ```bash
 # Add a new snippet
-rustash add "Docker Run PostgreSQL" \
+rustash --stash main snippets add "Docker Run PostgreSQL" \
   "docker run --name postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres" \
   --tags docker,postgres
 
 # List snippets
-rustash list
+rustash --stash main snippets list
 
 # Search snippets
-rustash list --filter "postgres"
+rustash --stash main snippets list --filter "postgres"
 
 # Use a snippet (copies to clipboard)
-rustash use 1
+rustash --stash main snippets use 1
 ```
 
 ### Using Template Variables
 
 ```bash
 # Add a snippet with placeholders
-rustash add "Git Commit" "git commit -m '{{message}}'" --tags git
+rustash --stash main snippets add "Git Commit" "git commit -m '{{message}}'" --tags git
 
 # Use with variables
-rustash use 1 --var message="feat: Add new feature"
+rustash --stash main snippets use 1 --var message="feat: Add new feature"
 
 # Or use interactive mode
-rustash use 1 --interactive
+rustash --stash main snippets use 1 --interactive
+```
+
+### Stashes
+
+Stashes are named collections of data. Define them in `~/.config/rustash/stashes.toml`:
+
+```toml
+default_stash = "main"
+
+[stashes.main]
+service_type = "Snippet"
+database_url = "sqlite://~/.config/rustash/rustash.db"
+```
+
+Use the `--stash` flag to target one:
+
+```bash
+rustash --stash main snippets list
 ```
 
 ## 📚 Documentation
