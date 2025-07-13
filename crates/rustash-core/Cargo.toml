@@ -26,39 +26,48 @@ chrono = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["full"] }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 log = "0.4"
+bincode = "1.3"
 
 # Connection pooling
 bb8 = { version = "0.8", optional = true }
 bb8-postgres = { version = "0.8", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
 
 # Platform-specific paths
 home = "0.5"
+clap = { workspace = true, features = ["derive"] }
+dirs = { workspace = true }
+toml = "0.9"
+erased-serde = { workspace = true }
 
 # Vector search (experimental)
 hnsw_rs = { version = "0.3", optional = true }
+pgvector = { version = "0.3.0", features = ["diesel"], optional = false }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-# Default to SQLite for backward compatibility
-default = ["sqlite"]
+# Default build includes both database backends, allowing for runtime selection.
+default = ["sqlite", "postgres"]
 
-# SQLite backend
+# SQLite backend dependencies
 sqlite = [
     "diesel/sqlite",
     "diesel-async/sqlite"
 ]
 
-# PostgreSQL backend
+# PostgreSQL backend dependencies
 postgres = [
     "diesel/postgres",
     "bb8",
-    "bb8-postgres",
-    "diesel-async/postgres"
+    "diesel-async/postgres",
+    "tokio-postgres",
+    "bb8-postgres"
 ]
 
 # Vector search (experimental)
-vector-search = ["hnsw_rs"]
+vector-search = ["dep:hnsw_rs"]

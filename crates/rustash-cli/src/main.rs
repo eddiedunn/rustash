@@ -1,86 +1,104 @@
 //! Rustash CLI Application
 
 mod commands;
-mod db;
 mod fuzzy;
 #[cfg(feature = "gui")]
 mod gui;
 mod utils;
 
-use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
-use commands::{add::AddCommand, list::ListCommand, use_snippet::UseCommand};
-use std::path::PathBuf;
+use anyhow::{bail, Context, Result};
+use clap::{Parser, Subcommand};
+use commands::{GraphCommand, RagCommand, SnippetCommands};
+use rustash_core::stash::{ServiceType, Stash};
+use std::sync::Arc;
 
-/// Supported database backends
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
-pub enum DatabaseBackend {
-    /// Use SQLite (default)
-    Sqlite,
-    /// Use PostgreSQL with Apache AGE
-    Postgres,
-}
-
-impl Default for DatabaseBackend {
-    fn default() -> Self {
-        Self::Sqlite
-    }
-}
-
-impl std::fmt::Display for DatabaseBackend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Sqlite => write!(f, "sqlite"),
-            Self::Postgres => write!(f, "postgres"),
-        }
-    }
-}
-
-/// Initialize the database connection pool
-async fn init_db(backend: DatabaseBackend, db_path: Option<PathBuf>) -> Result<()> {
-    db::init(backend, db_path).await
-}
-
+// Command-line interface definition
 #[derive(Parser)]
 #[command(name = "rustash")]
-#[command(about = "A modern snippet manager for developers")]
+#[command(about = "A developer-first, multi-modal data stash.")]
 #[command(version)]
 pub struct Cli {
-    /// Database backend to use
-    #[arg(long, value_enum, default_value_t = DatabaseBackend::Sqlite)]
-    pub db_backend: DatabaseBackend,
-
-    /// Path to the database file (for SQLite) or connection string (for PostgreSQL)
-    /// For SQLite: path to the .db file (default: ~/.rustash/rustash.db)
-    /// For PostgreSQL: connection string (e.g., postgres://user:password@localhost:5432/rustash)
-    #[arg(long)]
-    pub db_path: Option<PathBuf>,
+    /// The name of the stash to use.
+    /// If not provided, uses the default_stash from your config.
+    #[arg(long, short, global = true, env = "RUSTASH_STASH")]
+    pub stash: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
 }
 
+// Top-level commands
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Add a new snippet
-    Add(AddCommand),
-    /// List and search snippets
-    List(ListCommand),
-    /// Use a snippet (expand and copy to clipboard)
-    Use(UseCommand),
+    /// Manage snippets in a Snippet-type stash
+    #[command(alias = "s")]
+    Snippets(commands::SnippetCommand),
+
+    /// Interact with a RAG-type stash
+    #[command(alias = "r")]
+    Rag(commands::RagCommand),
+
+    /// Interact with a KnowledgeGraph-type stash
+    #[command(alias = "g")]
+    Graph(commands::GraphCommand),
+
+    /// Manage stashes
+    #[command(alias = "st")]
+    Stash(commands::StashCommand),
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config = rustash_core::config::load_config()?;
 
-    // Initialize the database connection pool with the specified backend
-    init_db(cli.db_backend, cli.db_path).await?;
-    let pool = db::get_pool().await?;
+    if let Commands::Stash(cmd) = cli.command {
+        return commands::stash_cmds::execute_stash_command(cmd.command, config).await;
+    }
+
+    let stash_name = cli.stash.or(config.default_stash).context(
+        "No stash specified and no default_stash is set. Use `rustash stash list` to see options.",
+    )?;
+
+    let stash_config = config
+        .stashes
+        .get(&stash_name)
+        .with_context(|| format!("Stash '{}' not found in your configuration.", stash_name))?;
+
+    let stash = Arc::new(Stash::new(&stash_name, stash_config.clone()).await?);
 
     match cli.command {
-        Commands::Add(cmd) => cmd.execute(pool.clone()).await,
-        Commands::List(cmd) => cmd.execute(pool.clone()).await,
-        Commands::Use(cmd) => cmd.execute(pool).await,
+        Commands::Snippets(cmd) => {
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::Snippet,
+                "The stash '{}' is a '{:?}' stash, but this command requires a 'Snippet' stash.",
+                stash.name,
+                stash.config.service_type
+            );
+            cmd.execute(stash.backend.clone()).await?;
+        }
+        Commands::Rag(cmd) => {
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::RAG,
+                "The stash '{}' is a '{:?}' stash, but this command requires a 'RAG' stash.",
+                stash.name,
+                stash.config.service_type
+            );
+            cmd.execute(stash.backend.clone()).await?;
+        }
+        Commands::Graph(cmd) => {
+            anyhow::ensure!(
+                stash.config.service_type == ServiceType::KnowledgeGraph,
+                "The stash '{}' is a '{:?}' stash, but this command requires a 'KnowledgeGraph' stash.",
+                stash.name,
+                stash.config.service_type
+            );
+            cmd.execute(stash.backend.clone()).await?;
+        }
+        Commands::Stash(cmd) => {
+            commands::stash_cmds::execute_stash_command(cmd.command, config).await?;
+        }
     }
+
+    Ok(())
 }

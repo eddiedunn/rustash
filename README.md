@@ -1,140 +1,50 @@
 # 🚀 Rustash
 
-**A modern, high-performance snippet manager for developers, built in Rust.**
+**A developer-first data platform built around flexible _Stashes_.**
 
-Rustash helps you manage, search, and use code snippets efficiently across multiple storage backends. Whether you're working locally with SQLite or need the power of PostgreSQL with Apache AGE for graph relationships, Rustash has you covered.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://github.com/rustash/rustash/actions/workflows/rust.yml/badge.svg)](https://github.com/rustash/rustash/actions)
-[![Documentation](https://img.shields.io/badge/Docs-USER_GUIDE-blue)](USER_GUIDE.md)
+Rustash lets you manage snippets, RAG documents, and knowledge graphs through one CLI. Each stash can use SQLite or PostgreSQL, so you can keep data local or scale to a server.
 
 ## ✨ Features
 
-- **Multi-Backend Support**
-  - SQLite for local development (default)
-  - PostgreSQL with Apache AGE for graph capabilities
-  - In-memory backend for testing
-
-- **Powerful Snippet Management**
-  - Full-text search with advanced filtering
-  - Template variables with `{{placeholders}}`
-  - Tag system for organization
-  - Clipboard integration
-  - Interactive mode for variable input
-
-- **Developer Friendly**
-  - Blazing fast (built in Rust)
-  - Containerized testing
-  - Multiple output formats (table, JSON, simple lists)
-  - Comprehensive documentation
+- **Stash System** – Create named stores for Snippets, RAG, or KnowledgeGraph data.
+- **Multi-Backend** – Point a stash at a local SQLite file or a remote Postgres DB.
+- **Unified CLI** – Common commands for adding, querying, and linking data across modes.
+- **Developer Friendly** – Written in modern Rust with async I/O and first-class tests.
 
 ## 🚀 Quick Start
 
-### Installation
+1. **Install**
+   ```bash
+   cargo install --path .
+   ```
+2. **Configure a stash**
+   Create `~/.config/rustash/stashes.toml`:
+   ```toml
+   default_stash = "my-snippets"
 
-```bash
-# Install from source (requires Rust 1.70+)
-cargo install --path .
+   [stashes.my-snippets]
+   service_type = "Snippet"
+   database_url = "sqlite://snippets.db"
+   ```
+3. **Use the CLI**
+   ```bash
+   rustash stash list
+   rustash snippets add "Hello" "echo hello" --tags example
+   rustash snippets list
+   ```
 
-# Or install from crates.io (when published)
-# cargo install rustash
-```
-
-### Your First Snippet
-
-```bash
-# Add a new snippet
-rustash add "Docker Run PostgreSQL" \
-  "docker run --name postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres" \
-  --tags docker,postgres
-
-# List snippets
-rustash list
-
-# Search snippets
-rustash list --filter "postgres"
-
-# Use a snippet (copies to clipboard)
-rustash use 1
-```
-
-### Using Template Variables
-
-```bash
-# Add a snippet with placeholders
-rustash add "Git Commit" "git commit -m '{{message}}'" --tags git
-
-# Use with variables
-rustash use 1 --var message="feat: Add new feature"
-
-# Or use interactive mode
-rustash use 1 --interactive
-```
+See `USER_GUIDE.md` for full usage details.
 
 ## 📚 Documentation
 
-| Document | Description |
-|----------|-------------|
-| [User Guide](USER_GUIDE.md) | Complete guide to using Rustash CLI |
-| [Architecture](ARCHITECTURE.md) | Technical architecture and design decisions |
-| [AI Contribution Guide](CONTRIBUTING_WITH_AI.md) | How we use AI in development |
-
-## 🧪 Testing
-
-```bash
-# Run all tests (requires Docker for PostgreSQL tests)
-make test-all
-
-# Run SQLite tests only
-make test-sqlite
-
-# Run PostgreSQL tests (requires Docker)
-make test-postgres
-```
-
-## 💻 Development
-
-### Project Structure
-
-```
-rustash/
-├── crates/
-│   ├── rustash-core/    # Core library with business logic
-│   └── rustash-cli/     # Command-line interface
-├── PRPs/               # Product Requirement Prompts
-└── .claude/            # AI development configurations
-```
-
-### Common Tasks
-
-```bash
-# Build in release mode
-cargo build --release
-
-# Run tests
-cargo nextest run
-
-# Run linter
-cargo clippy -- -Dwarnings
-
-# Format code
-cargo fmt
-```
+- [USER_GUIDE.md](USER_GUIDE.md) – Complete CLI and configuration guide.
+- [ARCHITECTURE.md](ARCHITECTURE.md) – System design overview.
+- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) – Contributor setup and workflow.
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contribution Guidelines](CONTRIBUTING.md) for details on how to get started.
-
-This project follows an **AI-driven development** approach. Check out our [AI Contribution Guide](CONTRIBUTING_WITH_AI.md) to learn more.
+Contributions are welcome! See [CONTRIBUTING_WITH_AI.md](CONTRIBUTING_WITH_AI.md).
 
 ## 📄 License
 
-This project is licensed under either of:
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
-
-## 🔗 Related Projects
-
-- [PromptManager](https://github.com/siekman-io/PromptManager) - Original inspiration for this project
+Licensed under MIT OR Apache-2.0.

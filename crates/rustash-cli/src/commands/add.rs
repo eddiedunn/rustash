@@ -2,12 +2,10 @@
 
 use anyhow::Result;
 use clap::Args;
-use rustash_core::database::DbPool;
-use rustash_core::{add_snippet, models::Snippet};
+use rustash_core::{models::Snippet, storage::StorageBackend};
 use std::sync::Arc;
 use uuid::Uuid;
 
-// Conditionally compile the GUI module usage
 #[cfg(feature = "gui")]
 use crate::gui;
 
@@ -31,26 +29,17 @@ pub struct AddCommand {
 }
 
 impl AddCommand {
-    pub async fn execute(self, pool: Arc<DbPool>) -> Result<()> {
-        // If we're reading from stdin, use CLI mode
-        if self.stdin {
-            return self.execute_cli(pool).await;
-        }
-
-        // If both title and content are provided, use CLI mode
-        if self.title.is_some() && self.content.is_some() {
-            self.execute_cli(pool).await
+    pub async fn execute(self, backend: Arc<Box<dyn StorageBackend>>) -> Result<()> {
+        if self.stdin || (self.title.is_some() && self.content.is_some()) {
+            self.execute_cli(backend).await
         } else if self.title.is_none() && self.content.is_none() {
-            // If neither is provided, launch the GUI
-            self.launch_gui(pool).await
+            self.launch_gui(backend).await
         } else {
-            // If only one is provided, show an error
             anyhow::bail!("Both --title and --content must be provided for command-line mode")
         }
     }
 
-    /// Handles the command-line logic for adding a snippet.
-    async fn execute_cli(self, pool: Arc<DbPool>) -> Result<()> {
+    async fn execute_cli(self, backend: Arc<Box<dyn StorageBackend>>) -> Result<()> {
         let title = self.title.unwrap_or_default();
         let content = if self.stdin {
             use std::io::{self, Read};
@@ -61,58 +50,37 @@ impl AddCommand {
             self.content.unwrap_or_default()
         };
 
-        if title.trim().is_empty() {
-            anyhow::bail!("Title cannot be empty for CLI usage.");
-        }
-        if content.trim().is_empty() {
-            anyhow::bail!("Content cannot be empty for CLI usage.");
-        }
+        anyhow::ensure!(
+            !title.trim().is_empty(),
+            "Title cannot be empty for CLI usage."
+        );
+        anyhow::ensure!(
+            !content.trim().is_empty(),
+            "Content cannot be empty for CLI usage."
+        );
 
         let new_snippet =
             Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
-        let snippet = add_snippet(&pool, new_snippet).await?;
-        println!(
-            "✓ Added snippet '{}' with ID: {}",
-            snippet.title, snippet.uuid
-        );
-
-        // The original `tags` is a JSON string, so we need to parse it to display nicely.
-        let snippet_tags: Vec<String> = serde_json::from_str(&snippet.tags).unwrap_or_default();
-        if !snippet_tags.is_empty() {
-            println!("  Tags: {}", snippet_tags.join(", "));
-        }
-
+        backend.save(&new_snippet).await?;
+        println!("\u{2713} Added snippet '{}' to stash.", new_snippet.title);
         Ok(())
     }
 
-    /// Launches the GUI. This function is only compiled if the 'gui' feature is enabled.
     #[cfg(feature = "gui")]
-    async fn launch_gui(&self, pool: Arc<DbPool>) -> Result<()> {
-        println!("No arguments provided. Launching GUI to add snippet...");
-
-        // Launch the GUI window and wait for it to close.
-        // It returns data for the new snippet if the user saved it.
-        if let Some(new_snippet_data) = gui::show_add_window()? {
-            // The GUI returns the data; the CLI is responsible for saving it.
-            let snippet_to_add = Snippet::with_uuid(
-                Uuid::new_v4(),
-                new_snippet_data.title,
-                new_snippet_data.content,
-                new_snippet_data.tags,
-            );
-            add_snippet(&pool, snippet_to_add).await?;
-            println!("✓ Snippet added via GUI.");
+    async fn launch_gui(&self, backend: Arc<Box<dyn StorageBackend>>) -> Result<()> {
+        println!("Launching GUI to add snippet...");
+        if let Some(data) = gui::show_add_window()? {
+            let snippet = Snippet::with_uuid(Uuid::new_v4(), data.title, data.content, data.tags);
+            backend.save(&snippet).await?;
+            println!("\u{2713} Snippet added via GUI.");
         } else {
             println!("Operation cancelled.");
         }
         Ok(())
     }
 
-    /// Fallback function if the 'gui' feature is disabled at compile time.
     #[cfg(not(feature = "gui"))]
-    async fn launch_gui(&self, _pool: Arc<DbPool>) -> Result<()> {
-        anyhow::bail!(
-            "No arguments provided. To use the GUI, please compile with the 'gui' feature."
-        )
+    async fn launch_gui(&self, _backend: Arc<Box<dyn StorageBackend>>) -> Result<()> {
+        anyhow::bail!("No arguments provided. To use the GUI, recompile with the 'gui' feature.")
     }
 }
