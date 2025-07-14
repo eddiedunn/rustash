@@ -13,18 +13,17 @@ use diesel::{
     sql_query,
     sql_types::{Binary, Integer},
 };
-use diesel_async::{
-    pooled_connection::bb8::PooledConnection,
-    AsyncConnection,
-    RunQueryDsl,
-};
+use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
 use pgvector::Vector;
 use std::sync::Arc;
 use tracing::debug;
 use uuid::Uuid;
 
 // Type alias for pooled Postgres connection
-type PgPooledConnection<'a> = bb8::PooledConnection<'a, diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::AsyncPgConnection>>;
+type PgPooledConnection<'a> = bb8::PooledConnection<
+    'a,
+    diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::AsyncPgConnection>,
+>;
 
 /// A PostgreSQL-backed storage implementation.
 #[derive(Debug, Clone)]
@@ -35,12 +34,17 @@ pub struct PostgresBackend {
 impl PostgresBackend {
     /// Create a new PostgreSQL backend with the given connection pool.
     pub fn new(pool: crate::database::postgres_pool::PgPool) -> Self {
-        Self { pool: Arc::new(pool) }
+        Self {
+            pool: Arc::new(pool),
+        }
     }
 
     /// Get a connection from the pool.
     async fn get_conn(&self) -> Result<PgPooledConnection<'_>> {
-        self.pool.get().await.map_err(|e| Error::Pool(e.to_string()))
+        self.pool
+            .get()
+            .await
+            .map_err(|e| Error::Pool(e.to_string()))
     }
 }
 
@@ -51,7 +55,7 @@ impl StorageBackend for PostgresBackend {
             .as_any()
             .downcast_ref::<SnippetWithTags>()
             .ok_or_else(|| Error::other("Invalid item type: Expected SnippetWithTags"))?;
-            
+
         let tags_json = serde_json::to_string(&snippet.tags)?;
         let mut conn = self.get_conn().await?;
         let now = chrono::Utc::now().naive_utc();
@@ -80,7 +84,8 @@ impl StorageBackend for PostgresBackend {
                     .await?;
                 Ok(())
             })
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -121,8 +126,10 @@ impl StorageBackend for PostgresBackend {
 
         diesel_async::RunQueryDsl::execute(
             diesel::sql_query(query).bind::<Text, _>(&id_str),
-            &mut *conn
-        ).await.map_err(|e| Error::other(format!("Failed to delete snippet: {}", e)))?;
+            &mut *conn,
+        )
+        .await
+        .map_err(|e| Error::other(format!("Failed to delete snippet: {}", e)))?;
 
         Ok(())
     }
@@ -133,9 +140,9 @@ impl StorageBackend for PostgresBackend {
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
         use crate::schema::snippets::dsl::*;
         let mut conn = self.get_conn().await?;
-        
+
         let mut query_builder = snippets.into_boxed();
-        
+
         // Apply text filter if provided
         if let Some(text) = &query.text_filter {
             let search_term = format!("%{}%", text);
@@ -143,7 +150,7 @@ impl StorageBackend for PostgresBackend {
                 .filter(title.like(&search_term))
                 .or_filter(content.like(&search_term));
         }
-        
+
         // Apply tags filter if provided
         if let Some(tags) = &query.tags_filter {
             if !tags.is_empty() {
@@ -155,17 +162,15 @@ impl StorageBackend for PostgresBackend {
                 )));
             }
         }
-        
+
         // Apply limit if provided
         if let Some(limit) = query.limit {
             query_builder = query_builder.limit(limit as i64);
         }
-        
+
         // Execute the query
-        let results: Vec<DbSnippet> = query_builder
-            .load::<DbSnippet>(&mut *conn)
-            .await?;
-            
+        let results: Vec<DbSnippet> = query_builder.load::<DbSnippet>(&mut *conn).await?;
+
         // Convert results to the expected return type
         let items = results
             .into_iter()
@@ -174,7 +179,7 @@ impl StorageBackend for PostgresBackend {
                 Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
             })
             .collect();
-            
+
         Ok(items)
     }
 
@@ -185,7 +190,7 @@ impl StorageBackend for PostgresBackend {
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
         use diesel::sql_types::{BigInt, Float};
         let query_vector = Vector::from(embedding.to_vec());
-        
+
         #[derive(QueryableByName)]
         struct SnippetWithDistance {
             #[diesel(sql_type = diesel::sql_types::Text)]
@@ -217,10 +222,10 @@ impl StorageBackend for PostgresBackend {
         )
         .bind::<pgvector::sql_types::Vector, _>(&query_vector)
         .bind::<BigInt, _>(limit as i64);
-        
+
         let mut conn = self.get_conn().await?;
         let rows: Vec<SnippetWithDistance> = query.load(&mut *conn).await?;
-        
+
         let results = rows
             .into_iter()
             .map(|row| {
@@ -240,18 +245,13 @@ impl StorageBackend for PostgresBackend {
                 )
             })
             .collect();
-            
+
         Ok(results)
     }
 
-    async fn add_relation(
-        &self,
-        from: &Uuid,
-        to: &Uuid,
-        relation_type: &str,
-    ) -> Result<()> {
+    async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
         use crate::schema::relations::dsl::*;
-        
+
         let mut conn = self.get_conn().await?;
         let from_str = from.to_string();
         let to_str = to.to_string();
@@ -297,7 +297,8 @@ impl StorageBackend for PostgresBackend {
 
                 Ok(())
             })
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -307,11 +308,11 @@ impl StorageBackend for PostgresBackend {
         id: &Uuid,
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        use crate::schema::{snippets, relations};
-        
+        use crate::schema::{relations, snippets};
+
         let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
-        
+
         // This is a simplified implementation that just returns related snippets
         // by looking up relations in the database
         let related: Vec<Snippet> = crate::schema::snippets::table
@@ -319,15 +320,15 @@ impl StorageBackend for PostgresBackend {
             .limit(10) // Limit to 10 related items for now
             .load(&mut conn)
             .await?;
-            
+
         let results = related
             .into_iter()
             .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
             .collect();
-            
+
         Ok(results)
-        */
     }
+}
 
 #[cfg(test)]
 mod tests {
@@ -346,9 +347,10 @@ mod tests {
 
     async fn create_test_backend() -> Result<PostgresBackend> {
         // Set up test database connection
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/rustash_test".to_string());
-            
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@localhost:5432/rustash_test".to_string()
+        });
+
         let pool = create_connection_pool(&database_url).await?;
 
         // Get a connection from the pool to run migrations
@@ -368,7 +370,7 @@ mod tests {
     async fn test_save_and_get() {
         let backend = create_test_backend().await.unwrap();
         let snippet_id = Uuid::new_v4();
-        
+
         // Create a test snippet with tags
         let snippet_with_tags = SnippetWithTags {
             uuid: snippet_id.to_string(),
@@ -400,7 +402,7 @@ mod tests {
     async fn test_save_and_update() {
         let backend = create_test_backend().await.unwrap();
         let snippet_id = Uuid::new_v4();
-        
+
         // Create and save the original snippet
         let original_snippet = SnippetWithTags {
             uuid: snippet_id.to_string(),
@@ -530,22 +532,22 @@ mod tests {
         // Test vector search
         let results = backend.vector_search(&test_embedding, 2).await.unwrap();
         assert_eq!(results.len(), 2);
-        
+
         // The first result should be more similar
         let (first_result, first_similarity) = &results[0];
         let first_snippet = first_result
             .as_any()
             .downcast_ref::<SnippetWithTags>()
             .unwrap();
-            
+
         let (_, second_similarity) = &results[1];
-        
+
         // The first result should be more similar than the second
         assert!(
             first_similarity > second_similarity,
             "First result should have higher similarity score"
         );
-        
+
         // The similarity score should be reasonable (cosine similarity in 0-1 range)
         assert!(
             *first_similarity > 0.8 && *first_similarity <= 1.0,
@@ -605,5 +607,4 @@ mod tests {
 
         assert_eq!(related_snippet.title, "Related Snippet");
     }
-}
 }
