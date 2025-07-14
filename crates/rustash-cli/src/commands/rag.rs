@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use rustash_core::{models::Snippet, storage::StorageBackend};
+use rustash_core::{models::SnippetWithTags, storage::StorageBackend};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Args)]
 pub struct RagCommand {
@@ -36,7 +37,7 @@ impl RagCommand {
                 let content = std::fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read document from '{}'", path))?;
 
-                let title = title.unwrap_or_else(|| path);
+                let title = title.unwrap_or_else(|| path.clone());
 
                 // --- Placeholder for Embedding Generation ---
                 // In a real application, you would call an embedding model here.
@@ -44,12 +45,13 @@ impl RagCommand {
                 let dummy_embedding: Vec<f32> = vec![0.1; 384]; // Must match dimension in migration
                                                                 // ------------------------------------------
 
-                let snippet = Snippet::with_embedding(
+                let mut snippet = SnippetWithTags::with_uuid(
+                    Uuid::new_v4(),
                     title,
                     content,
                     vec!["rag_document".to_string()],
-                    Some(bincode::serialize(&dummy_embedding)?),
                 );
+                snippet.embedding = Some(bincode::serialize(&dummy_embedding)?);
 
                 backend.save(&snippet).await?;
                 println!("\u{2713} Document '{}' added to RAG stash.", snippet.title);
@@ -68,7 +70,7 @@ impl RagCommand {
                 } else {
                     println!("Found {} similar documents:", results.len());
                     for (item, distance) in results {
-                        if let Some(snippet) = item.as_any().downcast_ref::<Snippet>() {
+                        if let Some(snippet) = item.as_any().downcast_ref::<SnippetWithTags>() {
                             println!("  - Title: {}, (Distance: {:.4})", snippet.title, distance);
                         }
                     }

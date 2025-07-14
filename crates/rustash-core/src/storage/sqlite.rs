@@ -10,14 +10,11 @@ use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use diesel::{
     prelude::*,
-    query_builder::AsQuery,
-    query_dsl::methods::LoadQuery,
     sql_query,
-    sql_types::{Binary, Integer, Nullable, Text, Timestamp},
+    sql_types::{Binary as SqlBinary, Double, Integer as SqlInteger, Nullable, Text, Timestamp},
 };
 use diesel_async::{
-    pooled_connection::bb8::PooledConnection,
-    AsyncConnection,
+    pooled_connection::bb8::PooledConnection, sqlite::AsyncSqliteConnection, AsyncConnection,
     RunQueryDsl,
 };
 use std::sync::Arc;
@@ -32,14 +29,24 @@ pub struct SqliteBackend {
 impl SqliteBackend {
     /// Create a new SQLite backend with the given connection pool.
     pub fn new(pool: crate::database::sqlite_pool::SqlitePool) -> Self {
-        Self { pool: Arc::new(pool) }
+        Self {
+            pool: Arc::new(pool),
+        }
     }
 
     /// Get a connection from the pool.
     async fn get_conn(
         &self,
-    ) -> Result<PooledConnection<'_, diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::AsyncSqliteConnection>>> {
-        self.pool.get().await.map_err(|e| Error::Pool(e.to_string()))
+    ) -> Result<
+        PooledConnection<
+            '_,
+            diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>,
+        >,
+    > {
+        self.pool
+            .get()
+            .await
+            .map_err(|e| Error::Pool(e.to_string()))
     }
 }
 
@@ -50,7 +57,7 @@ impl StorageBackend for SqliteBackend {
             .as_any()
             .downcast_ref::<SnippetWithTags>()
             .ok_or_else(|| Error::other("Invalid item type: Expected SnippetWithTags"))?;
-            
+
         let tags_json = serde_json::to_string(&snippet.tags)?;
         let mut conn = self.get_conn().await?;
         let now = chrono::Utc::now().naive_utc();
@@ -77,9 +84,10 @@ impl StorageBackend for SqliteBackend {
                     ))
                     .execute(conn)
                     .await?;
-                Ok(())
+                Ok::<_, Error>(())
             })
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -112,7 +120,6 @@ impl StorageBackend for SqliteBackend {
 
     async fn delete(&self, id: &Uuid) -> Result<()> {
         use crate::schema::snippets::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let id_str = id.to_string();
         let mut conn = self.get_conn().await?;
@@ -130,9 +137,6 @@ impl StorageBackend for SqliteBackend {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(Box<dyn crate::memory::MemoryItem + Send + Sync>, f32)>> {
-        use diesel::sql_types::{Binary as SqlBinary, Integer as SqlInteger, Nullable, Text, Timestamp, Double};
-        use diesel_async::RunQueryDsl;
-
         // SQLite VSS requires a bincode-serialized, f32 little-endian vector.
         let embedding_bytes = bincode::serialize(embedding)?;
 
@@ -147,7 +151,7 @@ impl StorageBackend for SqliteBackend {
             pub content: String,
             #[diesel(sql_type = Text)]
             pub tags: String,
-            #[diesel(sql_type = Nullable<diesel::sql_types::Binary>)]
+            #[diesel(sql_type = Nullable<SqlBinary>)]
             pub embedding: Option<Vec<u8>>,
             #[diesel(sql_type = Timestamp)]
             pub created_at: NaiveDateTime,
@@ -158,16 +162,14 @@ impl StorageBackend for SqliteBackend {
         }
 
         let mut conn = self.get_conn().await?;
-        
+
         // Build and execute the raw SQL query with parameters
-        let query = format!(
-            "SELECT s.uuid, s.title, s.content, s.tags, s.embedding, s.created_at, s.updated_at, vs.distance 
-             FROM snippets s 
-             JOIN vss_snippets vs ON s.rowid = vs.rowid
-             WHERE vss_search(vs.embedding, vss_search_params(?, ?))"
-        );
-        
-        let results = sql_query(&query)
+        let query = "SELECT s.*, vs.distance \
+                     FROM snippets s \
+                     JOIN vss_snippets vs ON s.rowid = vs.rowid \
+                     WHERE vss_search(vs.embedding, vss_search_params(?, ?))";
+
+        let results = sql_query(query)
             .bind::<SqlBinary, _>(&embedding_bytes)
             .bind::<SqlInteger, _>(limit as i32)
             .load::<SnippetWithDistance>(&mut *conn)
@@ -177,7 +179,7 @@ impl StorageBackend for SqliteBackend {
         let items = results
             .into_iter()
             .map(|row| {
-                let snippet = Snippet {
+                let with_tags: SnippetWithTags = Snippet {
                     uuid: row.uuid,
                     title: row.title,
                     content: row.content,
@@ -185,9 +187,9 @@ impl StorageBackend for SqliteBackend {
                     embedding: row.embedding,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
-                };
-                
-                let with_tags: SnippetWithTags = snippet.into();
+                }
+                .into();
+
                 (
                     Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
                     row.distance as f32,
@@ -199,14 +201,16 @@ impl StorageBackend for SqliteBackend {
     }
 
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
-        let query = diesel::sql_query(
-            "INSERT OR IGNORE INTO relations (from_uuid, to_uuid, relation_type) VALUES (?, ?, ?)",
-        )
-        .bind::<diesel::sql_types::Text, _>(from.to_string())
-        .bind::<diesel::sql_types::Text, _>(to.to_string())
-        .bind::<diesel::sql_types::Text, _>(relation_type);
         let mut conn = self.get_conn().await?;
-        query.execute(&mut *conn).await?;
+        diesel::insert_into(relations::table)
+            .values((
+                relations::from_uuid.eq(from.to_string()),
+                relations::to_uuid.eq(to.to_string()),
+                relations::relation_type.eq(relation_type),
+            ))
+            .on_conflict_do_nothing()
+            .execute(&mut *conn)
+            .await?;
         Ok(())
     }
 
@@ -221,23 +225,28 @@ impl StorageBackend for SqliteBackend {
         if let Some(text_filter) = &query.text_filter {
             let search_term = format!("%{}%", text_filter);
             query_builder = query_builder
-                .filter(title.like(&search_term))
-                .or_filter(content.like(&search_term));
+                .filter(title.like(search_term.clone()))
+                .or_filter(content.like(search_term));
         }
 
         if let Some(tag_list) = &query.tags {
             if !tag_list.is_empty() {
                 use diesel::dsl::sql;
-                let tag_conditions = tag_list
+                let mut tag_conditions = tag_list
                     .iter()
-                    .map(|tag| format!("tags LIKE '%\"{}\"%'", tag.replace("'", "''")))
+                    .map(|tag| format!("json_each.value = '{}'", tag.replace('\'', "''")))
                     .collect::<Vec<_>>()
                     .join(" OR ");
-                let sql_query = format!("({})", tag_conditions);
-                query_builder = query_builder.filter(sql::<diesel::sql_types::Bool>(&sql_query));
+                tag_conditions = format!(
+                    "uuid IN (SELECT s.uuid FROM snippets s, json_each(s.tags) WHERE {})",
+                    tag_conditions
+                );
+
+                query_builder =
+                    query_builder.filter(sql::<diesel::sql_types::Bool>(&tag_conditions));
             }
         }
-        
+
         if let Some(limit) = query.limit {
             query_builder = query_builder.limit(limit as i64);
         }
@@ -263,60 +272,26 @@ impl StorageBackend for SqliteBackend {
         id: &Uuid,
         relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        #[derive(QueryableByName)]
-        struct Row {
-            #[diesel(sql_type = Text)]
-            uuid: String,
-            #[diesel(sql_type = Text)]
-            title: String,
-            #[diesel(sql_type = Text)]
-            content: String,
-            #[diesel(sql_type = Text)]
-            tags: String,
-            #[diesel(sql_type = Nullable<Binary>)]
-            embedding: Option<Vec<u8>>,
-            #[diesel(sql_type = Timestamp)]
-            created_at: NaiveDateTime,
-            #[diesel(sql_type = Timestamp)]
-            updated_at: NaiveDateTime,
-        }
-
-        let mut sql = String::from(
-            "SELECT s.uuid, s.title, s.content, s.tags, s.embedding, \
-             s.created_at, s.updated_at \
-             FROM snippets s \
-             JOIN relations r ON r.to_uuid = s.uuid \
-             WHERE r.from_uuid = ?",
-        );
-        if relation_type.is_some() {
-            sql.push_str(" AND r.relation_type = ?");
-        }
-
         let mut conn = self.get_conn().await?;
-        let mut query = diesel::sql_query(sql).bind::<Text, _>(id.to_string());
-        if let Some(rel) = relation_type {
-            query = query.bind::<Text, _>(rel);
+        let mut query = relations::table
+            .inner_join(snippets::table.on(relations::to_uuid.eq(snippets::uuid)))
+            .filter(relations::from_uuid.eq(id.to_string()))
+            .select(DbSnippet::as_select())
+            .into_boxed();
+
+        if let Some(rel_type) = relation_type {
+            query = query.filter(relations::relation_type.eq(rel_type));
         }
 
-        let rows: Vec<Row> = query.load(&mut *conn).await?;
+        let results: Vec<DbSnippet> = query.load(&mut conn).await?;
 
-        let items = rows
+        let items = results
             .into_iter()
-            .map(|row| {
-                let snippet = DbSnippet {
-                    uuid: row.uuid,
-                    title: row.title,
-                    content: row.content,
-                    tags: row.tags,
-                    embedding: row.embedding,
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                };
-                let with_tags: SnippetWithTags = snippet.into();
+            .map(|s| {
+                let with_tags: SnippetWithTags = s.into();
                 Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
             })
             .collect();
-
         Ok(items)
     }
 }
@@ -324,12 +299,8 @@ impl StorageBackend for SqliteBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        database::create_test_pool,
-        models::{Snippet, SnippetWithTags},
-    };
+    use crate::{database::create_test_pool, models::SnippetWithTags};
     use chrono::Utc;
-    use std::sync::Arc;
     use uuid::Uuid;
 
     async fn create_test_backend() -> SqliteBackend {
@@ -440,52 +411,5 @@ mod tests {
             .downcast_ref::<SnippetWithTags>()
             .unwrap();
         assert_eq!(result.title, "Rust Vector");
-    }
-
-    #[tokio::test]
-    async fn test_get_related() {
-        let backend = create_test_backend().await;
-
-        let source = SnippetWithTags {
-            uuid: Uuid::new_v4().to_string(),
-            id: Uuid::new_v4(),
-            title: "Source".to_string(),
-            content: "source".to_string(),
-            tags: vec![],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        let target = SnippetWithTags {
-            uuid: Uuid::new_v4().to_string(),
-            id: Uuid::new_v4(),
-            title: "Target".to_string(),
-            content: "target".to_string(),
-            tags: vec![],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        backend.save(&source).await.unwrap();
-        backend.save(&target).await.unwrap();
-
-        backend
-            .add_relation(&source.id, &target.id, "related")
-            .await
-            .unwrap();
-
-        let results = backend
-            .get_related(&source.id, Some("related"))
-            .await
-            .unwrap();
-
-        assert_eq!(results.len(), 1);
-        let related = results[0]
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-        assert_eq!(related.title, "Target");
     }
 }

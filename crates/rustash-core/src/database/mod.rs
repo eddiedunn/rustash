@@ -4,16 +4,13 @@
 //! database backends (SQLite and PostgreSQL) with compile-time backend selection.
 
 use crate::error::{Error, Result};
-use diesel::migration::MigrationConnection;
 use diesel_migrations::embed_migrations;
 
 // A common MIGRATIONS constant that can be used by backend-specific modules.
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 // Re-export the migration types for use in backend modules
-pub use diesel_migrations::{EmbeddedMigrations, MigrationHarness};
-
-
+pub use diesel_migrations::{AsyncMigrationHarness, EmbeddedMigrations};
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite_pool {
@@ -35,9 +32,9 @@ pub mod sqlite_pool {
 
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.interact(|conn| conn.run_pending_migrations(MIGRATIONS).map(|_| ()))
+        conn.run_pending_migrations(MIGRATIONS)
             .await
-            .map_err(|e| Error::Other(format!("Migration task failed: {}", e)))??;
+            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
 
         Ok(pool)
     }
@@ -62,9 +59,9 @@ pub mod postgres_pool {
 
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.interact(|conn| conn.run_pending_migrations(MIGRATIONS).map(|_| ()))
+        conn.run_pending_migrations(MIGRATIONS)
             .await
-            .map_err(|e| Error::Other(format!("Migration task failed: {}", e)))??;
+            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
 
         Ok(pool)
     }

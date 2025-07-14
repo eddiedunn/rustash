@@ -1,6 +1,15 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    relations (from_uuid, to_uuid, relation_type) {
+        from_uuid -> Text,
+        to_uuid -> Text,
+        relation_type -> Text,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     snippets (uuid) {
         uuid -> Text,
         title -> Text,
@@ -13,43 +22,13 @@ diesel::table! {
 }
 
 diesel::table! {
-    snippets_fts (rowid) {
+    vss_snippets (rowid) {
         rowid -> Integer,
-        title -> Nullable<Binary>,
-        content -> Nullable<Binary>,
-        tags -> Nullable<Binary>,
-        #[sql_name = "snippets_fts"]
-        fts_main -> Nullable<Binary>,
-        rank -> Nullable<Binary>,
+        embedding -> Nullable<Binary>,
     }
 }
 
-diesel::table! {
-    snippets_fts_config (k) {
-        k -> Binary,
-        v -> Nullable<Binary>,
-    }
-}
+diesel::joinable!(relations -> snippets (from_uuid));
+diesel::joinable!(vss_snippets -> snippets (rowid));
 
-diesel::table! {
-    snippets_fts_data (id) {
-        id -> Nullable<Integer>,
-        block -> Nullable<Binary>,
-    }
-}
-
-diesel::table! {
-    snippets_fts_idx (segid, term) {
-        segid -> Binary,
-        term -> Binary,
-        pgno -> Nullable<Binary>,
-    }
-}
-
-diesel::allow_tables_to_appear_in_same_query!(
-    snippets,
-    snippets_fts,
-    snippets_fts_config,
-    snippets_fts_data,
-    snippets_fts_idx,
-);
+diesel::allow_tables_to_appear_in_same_query!(relations, snippets, vss_snippets,);
