@@ -75,7 +75,7 @@ impl StorageBackend for PostgresBackend {
         };
 
         conn.transaction(|conn| {
-            Box::pin(async move {
+            Box::pin(async move -> Result<()> {
                 diesel::insert_into(crate::schema::snippets::table)
                     .values(&db_snippet)
                     .on_conflict(crate::schema::snippets::uuid)
@@ -158,10 +158,10 @@ impl StorageBackend for PostgresBackend {
         }
 
         // Apply tags filter if provided
-        if let Some(tags) = &query.tags {
-            if !tags.is_empty() {
+        if let Some(filter_tags) = &query.tags {
+            if !filter_tags.is_empty() {
                 use diesel::dsl::sql;
-                let tags_json = serde_json::to_value(tags)?;
+                let tags_json = serde_json::to_value(filter_tags)?;
                 query_builder = query_builder.filter(sql::<diesel::sql_types::Bool>(&format!(
                     "tags @> '{}'::jsonb",
                     tags_json
@@ -264,7 +264,7 @@ impl StorageBackend for PostgresBackend {
         let to_str = to.to_string();
 
         conn.transaction(|conn| {
-            Box::pin(async move {
+            Box::pin(async move -> Result<()> {
                 // First ensure both snippets exist
                 let from_exists: bool = crate::schema::snippets::table
                     .filter(crate::schema::snippets::uuid.eq(&from_str))
@@ -319,27 +319,27 @@ impl StorageBackend for PostgresBackend {
 
         use crate::schema::{relations, snippets};
 
-        let id_str = id.to_string();
+        let id_str = _id.to_string();
         let mut conn = self.get_conn().await?;
 
         // This is a simplified implementation that just returns related snippets
         // by looking up relations in the database
-        let related: Vec<Snippet> = crate::schema::snippets::table
-            .filter(crate::schema::snippets::uuid.ne(id.to_string()))
+        let related: Vec<DbSnippet> = crate::schema::snippets::table
+            .filter(crate::schema::snippets::uuid.ne(&id_str))
             .limit(10) // Limit to 10 related items for now
-            .load(&mut conn)
+            .load(&mut *conn)
             .await?;
 
         let results = related
             .into_iter()
-            .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
+            .map(|s| {
+                let with_tags: SnippetWithTags = s.into();
+                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+            })
             .collect();
 
         Ok(results)
     }
-}
-
-
 }
 #[cfg(test)]
 mod tests {
