@@ -12,12 +12,8 @@ use diesel::{
     query_builder::AsQuery,
     query_dsl::methods::LoadQuery,
     sql_query,
-
     sql_types::{Binary, Integer},
-
-
     sql_types::{Binary, Integer, Text},
-
 };
 use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
 use pgvector::Vector;
@@ -75,7 +71,7 @@ impl StorageBackend for PostgresBackend {
         };
 
         conn.transaction(|conn| {
-            Box::pin(async move -> Result<()> {
+            Box::pin(async move {
                 diesel::insert_into(crate::schema::snippets::table)
                     .values(&db_snippet)
                     .on_conflict(crate::schema::snippets::uuid)
@@ -255,7 +251,6 @@ impl StorageBackend for PostgresBackend {
         Ok(results)
     }
 
-
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
         use crate::schema::relations::dsl::*;
 
@@ -264,7 +259,7 @@ impl StorageBackend for PostgresBackend {
         let to_str = to.to_string();
 
         conn.transaction(|conn| {
-            Box::pin(async move -> Result<()> {
+            Box::pin(async move {
                 // First ensure both snippets exist
                 let from_exists: bool = crate::schema::snippets::table
                     .filter(crate::schema::snippets::uuid.eq(&from_str))
@@ -307,7 +302,6 @@ impl StorageBackend for PostgresBackend {
         })
         .await?;
 
-
         Ok(())
     }
 
@@ -316,7 +310,6 @@ impl StorageBackend for PostgresBackend {
         _id: &Uuid,
         _relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-
         use crate::schema::{relations, snippets};
 
         let id_str = _id.to_string();

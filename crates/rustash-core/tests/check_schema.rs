@@ -40,31 +40,32 @@ async fn check_schema() -> Result<(), Box<dyn std::error::Error>> {
     .get_result(&mut *conn)
     .await?;
 
-    let table_exists = table_count.count > 0;
-    println!("snippets table exists: {}", table_exists);
+    assert!(table_count.count > 0, "'snippets' table is missing");
 
-    // Get the schema of the snippets table
-    if table_exists {
-        let schema: Vec<ColumnInfo> = diesel::sql_query("PRAGMA table_info(snippets)")
-            .load(&mut *conn)
-            .await?;
+    // Validate the schema of the snippets table
+    let schema: Vec<ColumnInfo> = diesel::sql_query("PRAGMA table_info(snippets)")
+        .load(&mut *conn)
+        .await?;
 
-        println!("\nSchema for 'snippets' table:");
-        println!(
-            "{: <5} {: <15} {: <15} {: <5} {: <10} {: <5}",
-            "cid", "name", "type", "notnull", "dflt_value", "pk"
+    let column_names: std::collections::HashSet<String> =
+        schema.iter().map(|c| c.name.clone()).collect();
+
+    let expected_columns = [
+        "uuid",
+        "title",
+        "content",
+        "tags",
+        "embedding",
+        "created_at",
+        "updated_at",
+    ];
+
+    for col in expected_columns {
+        assert!(
+            column_names.contains(col),
+            "column '{}' missing from 'snippets' table",
+            col
         );
-        for col in schema {
-            println!(
-                "{: <5} {: <15} {: <15} {: <5} {: <10} {: <5}",
-                col.cid,
-                col.name,
-                col.type_,
-                col.notnull,
-                col.dflt_value.unwrap_or_default(),
-                col.pk
-            );
-        }
     }
 
     // Check if the snippets_old table exists
@@ -108,14 +109,13 @@ async fn check_schema() -> Result<(), Box<dyn std::error::Error>> {
     .get_result(&mut *conn)
     .await?;
 
-    let migrations_table_exists = migrations_table_count.count > 0;
-    println!(
-        "\n__diesel_schema_migrations table exists: {}",
-        migrations_table_exists
+    assert!(
+        migrations_table_count.count > 0,
+        "'__diesel_schema_migrations' table is missing"
     );
 
     // Get the applied migrations
-    if migrations_table_exists {
+    {
         #[derive(QueryableByName, Debug)]
         struct Migration {
             #[diesel(sql_type = Text)]
