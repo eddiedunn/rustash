@@ -13,7 +13,7 @@ use diesel::{
     query_builder::AsQuery,
     query_dsl::methods::LoadQuery,
     sql_query,
-    sql_types::{Binary, Integer, Text},
+    sql_types::{Binary, Integer, Nullable, Text, Timestamp},
 };
 use diesel_async::{
     pooled_connection::bb8::PooledConnection,
@@ -260,12 +260,64 @@ impl StorageBackend for SqliteBackend {
 
     async fn get_related(
         &self,
-        _id: &Uuid,
-        _relation_type: Option<&str>,
+        id: &Uuid,
+        relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
-        // TODO: Implement proper relation handling when the schema is updated
-        // For now, return an empty vector as relations are not yet implemented
-        Ok(Vec::new())
+        #[derive(QueryableByName)]
+        struct Row {
+            #[diesel(sql_type = Text)]
+            uuid: String,
+            #[diesel(sql_type = Text)]
+            title: String,
+            #[diesel(sql_type = Text)]
+            content: String,
+            #[diesel(sql_type = Text)]
+            tags: String,
+            #[diesel(sql_type = Nullable<Binary>)]
+            embedding: Option<Vec<u8>>,
+            #[diesel(sql_type = Timestamp)]
+            created_at: NaiveDateTime,
+            #[diesel(sql_type = Timestamp)]
+            updated_at: NaiveDateTime,
+        }
+
+        let mut sql = String::from(
+            "SELECT s.uuid, s.title, s.content, s.tags, s.embedding, \
+             s.created_at, s.updated_at \
+             FROM snippets s \
+             JOIN relations r ON r.to_uuid = s.uuid \
+             WHERE r.from_uuid = ?",
+        );
+        if relation_type.is_some() {
+            sql.push_str(" AND r.relation_type = ?");
+        }
+
+        let mut conn = self.get_conn().await?;
+        let mut query = diesel::sql_query(sql).bind::<Text, _>(id.to_string());
+        if let Some(rel) = relation_type {
+            query = query.bind::<Text, _>(rel);
+        }
+
+        let rows: Vec<Row> = query.load(&mut *conn).await?;
+
+        let items = rows
+            .into_iter()
+            .map(|row| {
+                let snippet = DbSnippet {
+                    uuid: row.uuid,
+                    title: row.title,
+                    content: row.content,
+                    tags: row.tags,
+                    embedding: row.embedding,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                let with_tags: SnippetWithTags = snippet.into();
+                Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+            })
+            .collect();
+
+        Ok(items)
     }
 }
 
@@ -388,5 +440,52 @@ mod tests {
             .downcast_ref::<SnippetWithTags>()
             .unwrap();
         assert_eq!(result.title, "Rust Vector");
+    }
+
+    #[tokio::test]
+    async fn test_get_related() {
+        let backend = create_test_backend().await;
+
+        let source = SnippetWithTags {
+            uuid: Uuid::new_v4().to_string(),
+            id: Uuid::new_v4(),
+            title: "Source".to_string(),
+            content: "source".to_string(),
+            tags: vec![],
+            embedding: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let target = SnippetWithTags {
+            uuid: Uuid::new_v4().to_string(),
+            id: Uuid::new_v4(),
+            title: "Target".to_string(),
+            content: "target".to_string(),
+            tags: vec![],
+            embedding: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        backend.save(&source).await.unwrap();
+        backend.save(&target).await.unwrap();
+
+        backend
+            .add_relation(&source.id, &target.id, "related")
+            .await
+            .unwrap();
+
+        let results = backend
+            .get_related(&source.id, Some("related"))
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        let related = results[0]
+            .as_any()
+            .downcast_ref::<SnippetWithTags>()
+            .unwrap();
+        assert_eq!(related.title, "Target");
     }
 }
