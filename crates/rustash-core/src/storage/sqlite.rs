@@ -376,8 +376,9 @@ mod tests {
 
         let query = crate::models::Query {
             text_filter: Some("vector".to_string()),
-            tags_filter: None,
+            tags: None,
             limit: Some(10),
+            ..Default::default()
         };
 
         let results = backend.query(&query).await.unwrap();

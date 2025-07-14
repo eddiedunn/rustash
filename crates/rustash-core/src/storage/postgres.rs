@@ -158,7 +158,7 @@ impl StorageBackend for PostgresBackend {
         }
 
         // Apply tags filter if provided
-        if let Some(tags) = &query.tags_filter {
+        if let Some(tags) = &query.tags {
             if !tags.is_empty() {
                 use diesel::dsl::sql;
                 let tags_json = serde_json::to_value(tags)?;
@@ -340,6 +340,7 @@ impl StorageBackend for PostgresBackend {
 }
 
 
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,8 +479,9 @@ mod tests {
         // Test text search
         let query = crate::models::Query {
             text_filter: Some("queries".to_string()),
-            tags_filter: None,
+            tags: None,
             limit: Some(10),
+            ..Default::default()
         };
         let results = backend.query(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -492,8 +494,9 @@ mod tests {
         // Test tag filter
         let query = crate::models::Query {
             text_filter: None,
-            tags_filter: Some(vec!["query".to_string()]),
+            tags: Some(vec!["query".to_string()]),
             limit: Some(10),
+            ..Default::default()
         };
         let results = backend.query(&query).await.unwrap();
         assert_eq!(results.len(), 1);
