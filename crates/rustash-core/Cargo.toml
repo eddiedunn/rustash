@@ -32,8 +32,8 @@ bincode = "1.3"
 tracing = "0.1"
 
 # Connection pooling
-bb8 = { version = "0.8", optional = true }
-bb8-postgres = { version = "0.8", optional = true }
+bb8 = { version = "0.9", optional = true }
+bb8-postgres = { version = "0.9", optional = true }
 tokio-postgres = { version = "0.7", optional = true }
 
 # Platform-specific paths
