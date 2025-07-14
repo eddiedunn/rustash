@@ -15,7 +15,7 @@ pub use diesel_migrations::EmbeddedMigrations;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_pool {
     use super::*;
-    use diesel_async::AsyncSqliteConnection;
+    use diesel_async::sqlite::AsyncSqliteConnection;
     use diesel_migrations::AsyncMigrationHarness;
 
     pub type SqlitePool = bb8::Pool<

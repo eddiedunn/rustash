@@ -1,5 +1,6 @@
 //! Rustash Core Library
 
+#![recursion_limit = "256"]
 pub mod config;
 pub mod database;
 pub mod error;
