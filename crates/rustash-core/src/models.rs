@@ -292,6 +292,10 @@ impl MemoryItem for Snippet {
     fn clone_dyn(&self) -> Box<dyn MemoryItem> {
         Box::new(self.clone())
     }
+
+    fn clone_dyn_send_sync(&self) -> Box<dyn MemoryItem + Send + Sync> {
+        Box::new(self.clone())
+    }
 }
 
 // Conversion implementations

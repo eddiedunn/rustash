@@ -13,7 +13,11 @@ use diesel::{
     query_dsl::methods::LoadQuery,
     sql_query,
 
+    sql_types::{Binary, Integer},
+
+
     sql_types::{Binary, Integer, Text},
+
 };
 use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
 use pgvector::Vector;
@@ -252,9 +256,57 @@ impl StorageBackend for PostgresBackend {
     }
 
 
-    async fn add_relation(&self, _from: &Uuid, _to: &Uuid, _relation_type: &str) -> Result<()> {
-        // TODO: Implement relation handling when the schema supports it
-        // For now, this is a no-op
+    async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
+        use crate::schema::relations::dsl::*;
+
+        let mut conn = self.get_conn().await?;
+        let from_str = from.to_string();
+        let to_str = to.to_string();
+
+        conn.transaction(|conn| {
+            Box::pin(async move {
+                // First ensure both snippets exist
+                let from_exists: bool = crate::schema::snippets::table
+                    .filter(crate::schema::snippets::uuid.eq(&from_str))
+                    .select(diesel::dsl::sql::<diesel::sql_types::Bool>("1"))
+                    .first(conn)
+                    .await
+                    .optional()?
+                    .is_some();
+
+                if !from_exists {
+                    return Err(Error::other(format!("Source snippet {} not found", from)));
+                }
+
+                let to_exists: bool = crate::schema::snippets::table
+                    .filter(crate::schema::snippets::uuid.eq(&to_str))
+                    .select(diesel::dsl::sql::<diesel::sql_types::Bool>("1"))
+                    .first(conn)
+                    .await
+                    .optional()?
+                    .is_some();
+
+                if !to_exists {
+                    return Err(Error::other(format!("Target snippet {} not found", to)));
+                }
+
+                // Add the relation
+                diesel::insert_into(relations)
+                    .values((
+                        from_uuid.eq(&from_str),
+                        to_uuid.eq(&to_str),
+                        rel_type.eq(relation_type),
+                    ))
+                    .on_conflict((from_uuid, to_uuid, rel_type))
+                    .do_nothing()
+                    .execute(conn)
+                    .await?;
+
+                Ok(())
+            })
+        })
+        .await?;
+
 
         Ok(())
     }
@@ -265,9 +317,25 @@ impl StorageBackend for PostgresBackend {
         _relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
 
-        // TODO: Implement proper relation handling when the schema is updated
-        // For now, return an empty vector as relations are not yet implemented
-        Ok(Vec::new())
+        use crate::schema::{relations, snippets};
+
+        let id_str = id.to_string();
+        let mut conn = self.get_conn().await?;
+
+        // This is a simplified implementation that just returns related snippets
+        // by looking up relations in the database
+        let related: Vec<Snippet> = crate::schema::snippets::table
+            .filter(crate::schema::snippets::uuid.ne(id.to_string()))
+            .limit(10) // Limit to 10 related items for now
+            .load(&mut conn)
+            .await?;
+
+        let results = related
+            .into_iter()
+            .map(|s| Box::new(s) as Box<dyn crate::memory::MemoryItem + Send + Sync>)
+            .collect();
+
+        Ok(results)
     }
 }
 
