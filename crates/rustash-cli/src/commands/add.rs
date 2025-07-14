@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Args;
-use rustash_core::{models::Snippet, storage::StorageBackend};
+use rustash_core::{models::SnippetWithTags, storage::StorageBackend};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -60,7 +60,7 @@ impl AddCommand {
         );
 
         let new_snippet =
-            Snippet::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
+            SnippetWithTags::with_uuid(Uuid::new_v4(), title.clone(), content, self.tags.clone());
         backend.save(&new_snippet).await?;
         println!("\u{2713} Added snippet '{}' to stash.", new_snippet.title);
         Ok(())
@@ -70,7 +70,8 @@ impl AddCommand {
     async fn launch_gui(&self, backend: Arc<Box<dyn StorageBackend>>) -> Result<()> {
         println!("Launching GUI to add snippet...");
         if let Some(data) = gui::show_add_window()? {
-            let snippet = Snippet::with_uuid(Uuid::new_v4(), data.title, data.content, data.tags);
+            let snippet =
+                SnippetWithTags::with_uuid(Uuid::new_v4(), data.title, data.content, data.tags);
             backend.save(&snippet).await?;
             println!("\u{2713} Snippet added via GUI.");
         } else {
