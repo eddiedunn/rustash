@@ -29,6 +29,5 @@ diesel::table! {
 }
 
 diesel::joinable!(relations -> snippets (from_uuid));
-diesel::joinable!(vss_snippets -> snippets (rowid));
 
 diesel::allow_tables_to_appear_in_same_query!(relations, snippets, vss_snippets,);

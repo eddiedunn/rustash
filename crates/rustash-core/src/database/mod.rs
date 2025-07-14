@@ -10,12 +10,13 @@ use diesel_migrations::embed_migrations;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 // Re-export the migration types for use in backend modules
-pub use diesel_migrations::{AsyncMigrationHarness, EmbeddedMigrations};
+pub use diesel_migrations::EmbeddedMigrations;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite_pool {
     use super::*;
-    use diesel_async::sqlite::AsyncSqliteConnection;
+    use diesel_async::AsyncSqliteConnection;
+    use diesel_migrations::AsyncMigrationHarness;
 
     pub type SqlitePool = bb8::Pool<
         diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>,
@@ -44,6 +45,7 @@ pub mod sqlite_pool {
 pub mod postgres_pool {
     use super::*;
     use diesel_async::AsyncPgConnection;
+    use diesel_migrations::AsyncMigrationHarness;
 
     pub type PgPool =
         bb8::Pool<diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncPgConnection>>;
