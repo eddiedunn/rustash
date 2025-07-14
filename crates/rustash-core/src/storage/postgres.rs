@@ -1,17 +1,23 @@
 //! PostgreSQL backend implementation for Rustash storage.
 
-use super::{Error, StorageBackend};
+use super::StorageBackend;
 use crate::{
-    error::Result,
-    models::{Query, Snippet, SnippetWithTags},
+    error::{Error, Result},
+    models::{DbSnippet, NewDbSnippet, Query, Snippet, SnippetWithTags},
 };
 use async_trait::async_trait;
+use chrono::NaiveDateTime;
 use diesel::{
     prelude::*,
     query_builder::AsQuery,
     query_dsl::methods::LoadQuery,
     sql_query,
+
     sql_types::{Binary, Integer},
+
+
+    sql_types::{Binary, Integer, Text},
+
 };
 use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
 use pgvector::Vector;
@@ -249,6 +255,7 @@ impl StorageBackend for PostgresBackend {
         Ok(results)
     }
 
+
     async fn add_relation(&self, from: &Uuid, to: &Uuid, relation_type: &str) -> Result<()> {
         use crate::schema::relations::dsl::*;
 
@@ -300,14 +307,16 @@ impl StorageBackend for PostgresBackend {
         })
         .await?;
 
+
         Ok(())
     }
 
     async fn get_related(
         &self,
-        id: &Uuid,
-        relation_type: Option<&str>,
+        _id: &Uuid,
+        _relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
+
         use crate::schema::{relations, snippets};
 
         let id_str = id.to_string();
@@ -329,6 +338,7 @@ impl StorageBackend for PostgresBackend {
         Ok(results)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

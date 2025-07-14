@@ -18,19 +18,29 @@ pub use diesel_migrations::{EmbeddedMigrations, MigrationHarness};
 pub trait AsyncMigrationHarness<C> {
     async fn run_pending_migrations<F>(&mut self, migrations: F) -> Result<()>
     where
-        F: Fn(&mut C) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> + Send + 'static,
-        C: diesel_migrations::MigrationConnection + 'static;
+        F: Fn(
+                &mut C,
+            )
+                -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>
+            + Send
+            + 'static,
+        C: MigrationConnection + 'static;
 }
 
 #[async_trait::async_trait]
 impl<C> AsyncMigrationHarness<C> for C
 where
-    C: diesel_migrations::MigrationConnection + Send,
+    C: MigrationConnection + Send,
 {
     async fn run_pending_migrations<F>(&mut self, migrations: F) -> Result<()>
     where
-        F: Fn(&mut C) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> + Send + 'static,
-        C: diesel_migrations::MigrationConnection + 'static,
+        F: Fn(
+                &mut C,
+            )
+                -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>
+            + Send
+            + 'static,
+        C: MigrationConnection + 'static,
     {
         tokio::task::spawn_blocking(move || migrations(self))
             .await
@@ -44,14 +54,14 @@ pub mod sqlite_pool {
     use super::*;
     use diesel_async::sqlite::AsyncSqliteConnection;
 
-    pub type SqlitePool =
-        bb8::Pool<diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>>;
+    pub type SqlitePool = bb8::Pool<
+        diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>,
+    >;
 
     pub async fn create_pool(database_url: &str) -> Result<SqlitePool> {
-        let manager =
-            diesel_async::pooled_connection::AsyncDieselConnectionManager::<AsyncSqliteConnection>::new(
-                database_url,
-            );
+        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::<
+            AsyncSqliteConnection,
+        >::new(database_url);
         let pool = bb8::Pool::builder()
             .build(manager)
             .await
@@ -60,7 +70,9 @@ pub mod sqlite_pool {
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
         conn.run_pending_migrations(|connection| {
-            Ok(connection.run_pending_migrations(super::MIGRATIONS).map(|_| ())?)
+            Ok(connection
+                .run_pending_migrations(super::MIGRATIONS)
+                .map(|_| ())?)
         })
         .await?;
 
@@ -77,19 +89,20 @@ pub mod postgres_pool {
         bb8::Pool<diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncPgConnection>>;
 
     pub async fn create_pool(database_url: &str) -> Result<PgPool> {
-        let manager =
-            diesel_async::pooled_connection::AsyncDieselConnectionManager::<AsyncPgConnection>::new(
-                database_url,
-            );
+        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::<
+            AsyncPgConnection,
+        >::new(database_url);
         let pool = bb8::Pool::builder()
             .build(manager)
             .await
             .map_err(|e| Error::Pool(e.to_string()))?;
-        
+
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
         conn.run_pending_migrations(|connection| {
-            Ok(connection.run_pending_migrations(super::MIGRATIONS).map(|_| ())?)
+            Ok(connection
+                .run_pending_migrations(super::MIGRATIONS)
+                .map(|_| ())?)
         })
         .await?;
 
