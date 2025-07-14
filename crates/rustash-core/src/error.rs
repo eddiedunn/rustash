@@ -8,9 +8,6 @@ use uuid::Uuid;
 #[cfg(feature = "postgres")]
 use tokio_postgres::error::Error as PgError;
 
-#[cfg(feature = "bb8")]
-use bb8::RunError as Bb8RunError;
-
 /// Result type alias for Rustash operations
 pub type Result<T> = std::result::Result<T, Error>;
 

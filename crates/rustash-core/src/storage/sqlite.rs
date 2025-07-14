@@ -14,8 +14,7 @@ use diesel::{
     sql_types::{Binary as SqlBinary, Double, Integer as SqlInteger, Nullable, Text, Timestamp},
 };
 use diesel_async::{
-    pooled_connection::bb8::PooledConnection, sqlite::AsyncSqliteConnection, AsyncConnection,
-    RunQueryDsl,
+    pooled_connection::bb8::PooledConnection, AsyncConnection, AsyncSqliteConnection, RunQueryDsl,
 };
 use std::sync::Arc;
 use uuid::Uuid;

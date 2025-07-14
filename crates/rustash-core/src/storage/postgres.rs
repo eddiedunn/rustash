@@ -9,12 +9,10 @@ use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use diesel::{
     prelude::*,
-    query_builder::AsQuery,
-    query_dsl::methods::LoadQuery,
     sql_query,
     sql_types::{BigInt, Float, Text},
 };
-use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use pgvector::Vector;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -58,7 +56,6 @@ impl StorageBackend for PostgresBackend {
 
         let tags_json = serde_json::to_string(&snippet.tags)?;
         let mut conn = self.get_conn().await?;
-        let now = chrono::Utc::now().naive_utc();
 
         let db_snippet = NewDbSnippet {
             uuid: snippet.uuid.clone(),
@@ -70,6 +67,7 @@ impl StorageBackend for PostgresBackend {
 
         conn.transaction(|conn| {
             Box::pin(async move {
+                let now = chrono::Utc::now().naive_utc();
                 diesel::insert_into(crate::schema::snippets::table)
                     .values(&db_snippet)
                     .on_conflict(crate::schema::snippets::uuid)
@@ -149,10 +147,10 @@ impl StorageBackend for PostgresBackend {
         }
 
         // Apply tags filter if provided
-        if let Some(tags) = &query.tags {
-            if !tags.is_empty() {
+        if let Some(query_tags) = &query.tags {
+            if !query_tags.is_empty() {
                 use diesel::dsl::sql;
-                let tags_json = serde_json::to_value(tags)?;
+                let tags_json = serde_json::to_value(query_tags)?;
                 query_builder = query_builder.filter(sql::<diesel::sql_types::Bool>(&format!(
                     "tags @> '{}'::jsonb",
                     tags_json
@@ -284,9 +282,9 @@ impl StorageBackend for PostgresBackend {
                     .values((
                         from_uuid.eq(&from_str),
                         to_uuid.eq(&to_str),
-                        rel_type.eq(relation_type),
+                        crate::schema::relations::relation_type.eq(relation_type),
                     ))
-                    .on_conflict((from_uuid, to_uuid, rel_type))
+                    .on_conflict((from_uuid, to_uuid, crate::schema::relations::relation_type))
                     .do_nothing()
                     .execute(conn)
                     .await?;
