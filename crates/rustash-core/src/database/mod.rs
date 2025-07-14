@@ -4,15 +4,45 @@
 //! database backends (SQLite and PostgreSQL) with compile-time backend selection.
 
 use crate::error::{Error, Result};
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, AsyncMigrationHarness};
+use diesel::migration::MigrationConnection;
+use diesel_migrations::embed_migrations;
 
 // A common MIGRATIONS constant that can be used by backend-specific modules.
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
+// Re-export the migration types for use in backend modules
+pub use diesel_migrations::{EmbeddedMigrations, MigrationHarness};
+
+// Helper trait for running migrations with async connections
+#[async_trait::async_trait]
+pub trait AsyncMigrationHarness<C> {
+    async fn run_pending_migrations<F>(&mut self, migrations: F) -> Result<()>
+    where
+        F: Fn(&mut C) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> + Send + 'static,
+        C: diesel_migrations::MigrationConnection + 'static;
+}
+
+#[async_trait::async_trait]
+impl<C> AsyncMigrationHarness<C> for C
+where
+    C: diesel_migrations::MigrationConnection + Send,
+{
+    async fn run_pending_migrations<F>(&mut self, migrations: F) -> Result<()>
+    where
+        F: Fn(&mut C) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> + Send + 'static,
+        C: diesel_migrations::MigrationConnection + 'static,
+    {
+        tokio::task::spawn_blocking(move || migrations(self))
+            .await
+            .map_err(|e| Error::Other(format!("Migration task failed: {}", e)))
+            .and_then(|r| r.map_err(|e| Error::Other(format!("Migration failed: {}", e))))
+    }
+}
+
 #[cfg(feature = "sqlite")]
 pub mod sqlite_pool {
     use super::*;
-    use diesel_async::AsyncSqliteConnection;
+    use diesel_async::sqlite::AsyncSqliteConnection;
 
     pub type SqlitePool =
         bb8::Pool<diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>>;
@@ -29,9 +59,10 @@ pub mod sqlite_pool {
 
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.run_pending_migrations(MIGRATIONS)
-            .await
-            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
+        conn.run_pending_migrations(|connection| {
+            Ok(connection.run_pending_migrations(super::MIGRATIONS).map(|_| ())?)
+        })
+        .await?;
 
         Ok(pool)
     }
@@ -57,9 +88,10 @@ pub mod postgres_pool {
         
         // Run migrations on a new connection from the pool
         let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.run_pending_migrations(MIGRATIONS)
-            .await
-            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
+        conn.run_pending_migrations(|connection| {
+            Ok(connection.run_pending_migrations(super::MIGRATIONS).map(|_| ())?)
+        })
+        .await?;
 
         Ok(pool)
     }

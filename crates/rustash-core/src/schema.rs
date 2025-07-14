@@ -18,7 +18,8 @@ diesel::table! {
         title -> Nullable<Binary>,
         content -> Nullable<Binary>,
         tags -> Nullable<Binary>,
-        snippets_fts -> Nullable<Binary>,
+        #[sql_name = "snippets_fts"]
+        fts_main -> Nullable<Binary>,
         rank -> Nullable<Binary>,
     }
 }
