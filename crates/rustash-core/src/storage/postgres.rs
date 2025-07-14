@@ -12,6 +12,7 @@ use diesel::{
     query_builder::AsQuery,
     query_dsl::methods::LoadQuery,
     sql_query,
+
     sql_types::{Binary, Integer, Text},
 };
 use diesel_async::{pooled_connection::bb8::PooledConnection, AsyncConnection, RunQueryDsl};
@@ -250,9 +251,11 @@ impl StorageBackend for PostgresBackend {
         Ok(results)
     }
 
+
     async fn add_relation(&self, _from: &Uuid, _to: &Uuid, _relation_type: &str) -> Result<()> {
         // TODO: Implement relation handling when the schema supports it
         // For now, this is a no-op
+
         Ok(())
     }
 
@@ -261,11 +264,13 @@ impl StorageBackend for PostgresBackend {
         _id: &Uuid,
         _relation_type: Option<&str>,
     ) -> Result<Vec<Box<dyn crate::memory::MemoryItem + Send + Sync>>> {
+
         // TODO: Implement proper relation handling when the schema is updated
         // For now, return an empty vector as relations are not yet implemented
         Ok(Vec::new())
     }
 }
+
 
 #[cfg(test)]
 mod tests {
