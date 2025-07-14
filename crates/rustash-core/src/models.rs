@@ -3,7 +3,6 @@
 use crate::memory::MemoryItem;
 use crate::schema::snippets;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use diesel::backend::Backend;
 use diesel::prelude::*;
 use diesel::sql_types::{Text, Timestamp};
 use serde::{Deserialize, Serialize};
