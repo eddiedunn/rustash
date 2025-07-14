@@ -226,6 +226,25 @@ impl Snippet {
             updated_at: now,
         }
     }
+
+    /// Create a new Snippet with embedding
+    pub fn with_embedding(
+        title: String,
+        content: String,
+        tags: Vec<String>,
+        embedding: Option<Vec<u8>>,
+    ) -> Self {
+        let now = Utc::now().naive_utc();
+        Self {
+            uuid: Uuid::new_v4().to_string(),
+            title,
+            content,
+            tags: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
+            embedding,
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
 
 impl fmt::Display for Snippet {

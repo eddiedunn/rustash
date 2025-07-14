@@ -31,7 +31,7 @@ struct ColumnInfo {
 async fn check_schema() -> Result<(), Box<dyn std::error::Error>> {
     // Create a test pool
     let pool = create_test_pool().await?;
-    let mut conn = pool.get_connection().await?;
+    let mut conn = pool.get().await?;
 
     // Check if the snippets table exists
     let table_count: TableCount = diesel::sql_query(
@@ -66,40 +66,6 @@ async fn check_schema() -> Result<(), Box<dyn std::error::Error>> {
             "column '{}' missing from 'snippets' table",
             col
         );
-    }
-
-    // Check if the snippets_old table exists
-    let old_table_count: TableCount = diesel::sql_query(
-        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='snippets_old'",
-    )
-    .get_result(&mut *conn)
-    .await?;
-
-    let old_table_exists = old_table_count.count > 0;
-    println!("\nsnippets_old table exists: {}", old_table_exists);
-
-    // Get the schema of the snippets_old table if it exists
-    if old_table_exists {
-        let schema: Vec<ColumnInfo> = diesel::sql_query("PRAGMA table_info(snippets_old)")
-            .load(&mut *conn)
-            .await?;
-
-        println!("\nSchema for 'snippets_old' table:");
-        println!(
-            "{: <5} {: <15} {: <15} {: <5} {: <10} {: <5}",
-            "cid", "name", "type", "notnull", "dflt_value", "pk"
-        );
-        for col in schema {
-            println!(
-                "{: <5} {: <15} {: <15} {: <5} {: <10} {: <5}",
-                col.cid,
-                col.name,
-                col.type_,
-                col.notnull,
-                col.dflt_value.unwrap_or_default(),
-                col.pk
-            );
-        }
     }
 
     // Check if the __diesel_schema_migrations table exists
