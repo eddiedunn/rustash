@@ -15,27 +15,28 @@ pub use diesel_migrations::EmbeddedMigrations;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_pool {
     use super::*;
-    use diesel_async::AsyncSqliteConnection;
-    use diesel_migrations::AsyncMigrationHarness;
+    use diesel::SqliteConnection;
+    use diesel_async::pooled_connection::bb8::Pool;
+    use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+    use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
+    use diesel_migrations::MigrationHarness;
 
-    pub type SqlitePool = bb8::Pool<
-        diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>,
-    >;
+    pub type SqlitePool = Pool<SyncConnectionWrapper<SqliteConnection>>;
 
     pub async fn create_pool(database_url: &str) -> Result<SqlitePool> {
-        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::<
-            AsyncSqliteConnection,
-        >::new(database_url);
-        let pool = bb8::Pool::builder()
+        let manager = AsyncDieselConnectionManager::<SyncConnectionWrapper<SqliteConnection>>::new_with_setup(
+            database_url,
+            |conn| {
+                Box::pin(async {
+                    conn.run_pending_migrations(MIGRATIONS).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?; 
+                    Ok(())
+                })
+            },
+        );
+        let pool = Pool::builder()
             .build(manager)
             .await
             .map_err(|e| Error::Pool(e.to_string()))?;
-
-        // Run migrations on a new connection from the pool
-        let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.run_pending_migrations(MIGRATIONS)
-            .await
-            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
 
         Ok(pool)
     }
@@ -44,26 +45,30 @@ pub mod sqlite_pool {
 #[cfg(feature = "postgres")]
 pub mod postgres_pool {
     use super::*;
-    use diesel_async::AsyncPgConnection;
-    use diesel_migrations::AsyncMigrationHarness;
+    use diesel_async::async_connection_wrapper::{implementation::Tokio, AsyncConnectionWrapper};
+    use diesel_async::pg::AsyncPgConnection;
+    use diesel_async::pooled_connection::bb8::Pool;
+    use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+    use diesel_migrations::MigrationHarness;
 
-    pub type PgPool =
-        bb8::Pool<diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncPgConnection>>;
+    pub type PgPool = Pool<AsyncPgConnection>;
 
     pub async fn create_pool(database_url: &str) -> Result<PgPool> {
-        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::<
-            AsyncPgConnection,
-        >::new(database_url);
-        let pool = bb8::Pool::builder()
+        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
+        let pool = Pool::builder()
             .build(manager)
             .await
             .map_err(|e| Error::Pool(e.to_string()))?;
 
         // Run migrations on a new connection from the pool
-        let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        conn.run_pending_migrations(MIGRATIONS)
-            .await
-            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
+        let conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
+        let mut conn = AsyncConnectionWrapper::<_, Tokio>::from(conn);
+        tokio::task::spawn_blocking(move || {
+            conn.run_pending_migrations(MIGRATIONS)
+                .map_err(|e| Error::Other(format!("Migration failed: {}", e)))
+        })
+        .await
+        .map_err(|e| Error::Other(format!("Migration task failed: {}", e)))??;
 
         Ok(pool)
     }

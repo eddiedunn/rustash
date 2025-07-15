@@ -20,7 +20,7 @@ use uuid::Uuid;
 // Type alias for pooled Postgres connection
 type PgPooledConnection<'a> = bb8::PooledConnection<
     'a,
-    diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::AsyncPgConnection>,
+    diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::pg::AsyncPgConnection>,
 >;
 
 /// A PostgreSQL-backed storage implementation.

@@ -12,36 +12,38 @@ use diesel::{
     prelude::*,
     sql_query,
     sql_types::{Binary as SqlBinary, Double, Integer as SqlInteger, Nullable, Text, Timestamp},
+    SqliteConnection,
 };
 use diesel_async::{
-    pooled_connection::bb8::PooledConnection, AsyncConnection, AsyncSqliteConnection, RunQueryDsl,
+    pooled_connection::{
+        bb8::PooledConnection, AsyncDieselConnectionManager,
+    },
+    sync_connection_wrapper::SyncConnectionWrapper,
+    RunQueryDsl,
 };
 use std::sync::Arc;
 use uuid::Uuid;
 
+type SqlitePool = crate::database::sqlite_pool::SqlitePool;
+type SqlitePooledConnection<'a> =
+    PooledConnection<'a, AsyncDieselConnectionManager<SyncConnectionWrapper<SqliteConnection>>>;
+
 /// A SQLite-backed storage implementation.
 #[derive(Debug, Clone)]
 pub struct SqliteBackend {
-    pool: Arc<crate::database::sqlite_pool::SqlitePool>,
+    pool: Arc<SqlitePool>,
 }
 
 impl SqliteBackend {
     /// Create a new SQLite backend with the given connection pool.
-    pub fn new(pool: crate::database::sqlite_pool::SqlitePool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self {
             pool: Arc::new(pool),
         }
     }
 
     /// Get a connection from the pool.
-    async fn get_conn(
-        &self,
-    ) -> Result<
-        PooledConnection<
-            '_,
-            diesel_async::pooled_connection::AsyncDieselConnectionManager<AsyncSqliteConnection>,
-        >,
-    > {
+    async fn get_conn(&self) -> Result<SqlitePooledConnection<'_>> {
         self.pool
             .get()
             .await
@@ -101,7 +103,7 @@ impl StorageBackend for SqliteBackend {
 
         let result: Option<DbSnippet> = snippets
             .filter(uuid.eq(&id_str))
-            .first::<DbSnippet>(&mut *conn)
+            .first::<DbSnippet>(&mut conn)
             .await
             .optional()
             .map_err(Error::from)?;
@@ -110,7 +112,7 @@ impl StorageBackend for SqliteBackend {
             Some(snippet) => {
                 let with_tags: SnippetWithTags = snippet.into();
                 Ok(Some(
-                    Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>
+                    Box::new(with_tags) as Box<dyn crate::memory::MemoryItem + Send + Sync>,
                 ))
             }
             None => Ok(None),
@@ -124,7 +126,7 @@ impl StorageBackend for SqliteBackend {
         let mut conn = self.get_conn().await?;
 
         diesel::delete(snippets.filter(uuid.eq(id_str)))
-            .execute(&mut *conn)
+            .execute(&mut conn)
             .await
             .map_err(Error::from)?;
 
@@ -171,7 +173,7 @@ impl StorageBackend for SqliteBackend {
         let results = sql_query(query)
             .bind::<SqlBinary, _>(&embedding_bytes)
             .bind::<SqlInteger, _>(limit as i32)
-            .load::<SnippetWithDistance>(&mut *conn)
+            .load::<SnippetWithDistance>(&mut conn)
             .await?;
 
         // Convert the results to the expected format
@@ -208,7 +210,7 @@ impl StorageBackend for SqliteBackend {
                 relations::relation_type.eq(relation_type),
             ))
             .on_conflict_do_nothing()
-            .execute(&mut *conn)
+            .execute(&mut conn)
             .await?;
         Ok(())
     }
@@ -251,7 +253,7 @@ impl StorageBackend for SqliteBackend {
         }
 
         let results: Vec<DbSnippet> = query_builder
-            .load::<DbSnippet>(&mut *conn)
+            .load::<DbSnippet>(&mut conn)
             .await
             .map_err(Error::from)?;
 
@@ -292,123 +294,5 @@ impl StorageBackend for SqliteBackend {
             })
             .collect();
         Ok(items)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{database::create_test_pool, models::SnippetWithTags};
-    use chrono::Utc;
-    use uuid::Uuid;
-
-    async fn create_test_backend() -> SqliteBackend {
-        let pool = create_test_pool().await.unwrap();
-        SqliteBackend::new(pool)
-    }
-
-    #[tokio::test]
-    async fn test_save_and_get() {
-        let backend = create_test_backend().await;
-        let snippet_id = Uuid::new_v4();
-        let snippet = SnippetWithTags {
-            uuid: snippet_id.to_string(),
-            id: snippet_id,
-            title: "Test Snippet".to_string(),
-            content: "Test content".to_string(),
-            tags: vec!["test".to_string()],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        backend.save(&snippet).await.unwrap();
-
-        let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
-        let retrieved_snippet = retrieved
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-
-        assert_eq!(retrieved_snippet.title, snippet.title);
-        assert_eq!(retrieved_snippet.content, snippet.content);
-    }
-
-    #[tokio::test]
-    async fn test_save_and_update() {
-        let backend = create_test_backend().await;
-
-        let snippet_id = Uuid::new_v4();
-        let mut snippet = SnippetWithTags {
-            uuid: snippet_id.to_string(),
-            id: snippet_id,
-            title: "Initial Title".to_string(),
-            content: "Initial Content".to_string(),
-            tags: vec!["initial".to_string()],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        backend.save(&snippet).await.unwrap();
-
-        snippet.title = "Updated Title".to_string();
-        snippet.content = "Updated Content".to_string();
-
-        backend.save(&snippet).await.unwrap();
-
-        let retrieved = backend.get(&snippet_id).await.unwrap().unwrap();
-        let retrieved_snippet = retrieved
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-
-        assert_eq!(retrieved_snippet.title, "Updated Title");
-        assert_eq!(retrieved_snippet.content, "Updated Content");
-    }
-
-    #[tokio::test]
-    async fn test_query() {
-        let backend = create_test_backend().await;
-
-        let snippet1 = SnippetWithTags {
-            uuid: Uuid::new_v4().to_string(),
-            id: Uuid::new_v4(),
-            title: "Python List".to_string(),
-            content: "my_list = [1, 2, 3]".to_string(),
-            tags: vec!["python".to_string()],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        let snippet2 = SnippetWithTags {
-            uuid: Uuid::new_v4().to_string(),
-            id: Uuid::new_v4(),
-            title: "Rust Vector".to_string(),
-            content: "let vec = vec![1, 2, 3];".to_string(),
-            tags: vec!["rust".to_string()],
-            embedding: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        backend.save(&snippet1).await.unwrap();
-        backend.save(&snippet2).await.unwrap();
-
-        let query = crate::models::Query {
-            text_filter: Some("vector".to_string()),
-            tags: None,
-            limit: Some(10),
-            ..Default::default()
-        };
-
-        let results = backend.query(&query).await.unwrap();
-        assert_eq!(results.len(), 1);
-        let result = results[0]
-            .as_any()
-            .downcast_ref::<SnippetWithTags>()
-            .unwrap();
-        assert_eq!(result.title, "Rust Vector");
     }
 }

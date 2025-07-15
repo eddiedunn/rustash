@@ -44,8 +44,9 @@ colored = "2.1"
 home = "0.5"
 
 # Database dependencies
-diesel = { version = "2.2", features = ["chrono", "uuid"] }
+diesel = { version = "2.2", features = ["chrono", "uuid", "sqlite"] }
 diesel_migrations = { version = "2.2" }
+diesel-async = { version = "0.6.1", default-features = false, features = ["postgres", "sqlite", "bb8", "async-connection-wrapper", "tokio", "sync-connection-wrapper"] }
 
 # Backend-specific dependencies should be specified in the respective crates
 

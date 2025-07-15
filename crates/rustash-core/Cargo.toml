@@ -12,9 +12,9 @@ categories.workspace = true
 
 [dependencies]
 # Core
-diesel = { workspace = true, features = ["chrono", "serde_json", "uuid"] }
+diesel = { workspace = true, features = ["chrono", "serde_json", "uuid", "sqlite"] }
 diesel_migrations = { workspace = true }
-diesel-async = { version = "0.6.1", default-features = false, features = ["postgres", "sqlite", "bb8"] }
+diesel-async = { workspace = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
