@@ -8,6 +8,7 @@ use crate::{
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use diesel::{
+    pg::upsert::excluded,
     prelude::*,
     sql_query,
     sql_types::{BigInt, Float, Text},
@@ -20,7 +21,9 @@ use uuid::Uuid;
 // Type alias for pooled Postgres connection
 type PgPooledConnection<'a> = bb8::PooledConnection<
     'a,
-    diesel_async::pooled_connection::AsyncDieselConnectionManager<diesel_async::pg::AsyncPgConnection>,
+    diesel_async::pooled_connection::AsyncDieselConnectionManager<
+        diesel_async::pg::AsyncPgConnection,
+    >,
 >;
 
 /// A PostgreSQL-backed storage implementation.
@@ -73,9 +76,10 @@ impl StorageBackend for PostgresBackend {
                     .on_conflict(crate::schema::snippets::uuid)
                     .do_update()
                     .set((
-                        crate::schema::snippets::title.eq(&db_snippet.title),
-                        crate::schema::snippets::content.eq(&db_snippet.content),
-                        crate::schema::snippets::tags.eq(&db_snippet.tags),
+                        crate::schema::snippets::title.eq(excluded(crate::schema::snippets::title)),
+                        crate::schema::snippets::content
+                            .eq(excluded(crate::schema::snippets::content)),
+                        crate::schema::snippets::tags.eq(excluded(crate::schema::snippets::tags)),
                         crate::schema::snippets::updated_at.eq(now),
                     ))
                     .execute(conn)
@@ -329,7 +333,10 @@ mod tests {
         let pool = create_connection_pool(&database_url).await?;
 
         // Get a connection from the pool to run migrations
-        let mut conn = pool.get().await?;
+        let mut conn = pool
+            .get()
+            .await
+            .expect("Failed to get a connection for migrations");
 
         // Run migrations on the same connection that will be used by the tests
         conn.run_pending_migrations(MIGRATIONS)

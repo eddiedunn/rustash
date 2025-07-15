@@ -24,19 +24,19 @@ pub mod sqlite_pool {
     pub type SqlitePool = Pool<SyncConnectionWrapper<SqliteConnection>>;
 
     pub async fn create_pool(database_url: &str) -> Result<SqlitePool> {
-        let manager = AsyncDieselConnectionManager::<SyncConnectionWrapper<SqliteConnection>>::new_with_setup(
+        let manager = AsyncDieselConnectionManager::<SyncConnectionWrapper<SqliteConnection>>::new(
             database_url,
-            |conn| {
-                Box::pin(async {
-                    conn.run_pending_migrations(MIGRATIONS).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?; 
-                    Ok(())
-                })
-            },
         );
         let pool = Pool::builder()
             .build(manager)
             .await
             .map_err(|e| Error::Pool(e.to_string()))?;
+
+        // Run migrations on a new connection from the pool
+        let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
+        (&mut *conn)
+            .run_pending_migrations(MIGRATIONS)
+            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
 
         Ok(pool)
     }
@@ -45,7 +45,6 @@ pub mod sqlite_pool {
 #[cfg(feature = "postgres")]
 pub mod postgres_pool {
     use super::*;
-    use diesel_async::async_connection_wrapper::{implementation::Tokio, AsyncConnectionWrapper};
     use diesel_async::pg::AsyncPgConnection;
     use diesel_async::pooled_connection::bb8::Pool;
     use diesel_async::pooled_connection::AsyncDieselConnectionManager;
@@ -61,14 +60,10 @@ pub mod postgres_pool {
             .map_err(|e| Error::Pool(e.to_string()))?;
 
         // Run migrations on a new connection from the pool
-        let conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
-        let mut conn = AsyncConnectionWrapper::<_, Tokio>::from(conn);
-        tokio::task::spawn_blocking(move || {
-            conn.run_pending_migrations(MIGRATIONS)
-                .map_err(|e| Error::Other(format!("Migration failed: {}", e)))
-        })
-        .await
-        .map_err(|e| Error::Other(format!("Migration task failed: {}", e)))??;
+        let mut conn = pool.get().await.map_err(|e| Error::Pool(e.to_string()))?;
+        (&mut *conn)
+            .run_pending_migrations(MIGRATIONS)
+            .map_err(|e| Error::Other(format!("Migration failed: {}", e)))?;
 
         Ok(pool)
     }
